@@ -21,6 +21,8 @@ CATEGORIES = (
     ("超市", "超市"), ("医院", "医院"), ("药店", "药店"),
     ("餐馆", "餐饮"), ("餐厅", "餐饮"), ("吃饭", "餐饮"), ("美食", "餐饮"),
     ("散步", "公园"), ("遛娃", "公园"), ("约会", "咖啡厅"),
+    ("散心", "公园"), ("好玩", "风景名胜"), ("值得去", "风景名胜"),
+    ("去哪儿", "风景名胜"), ("逛逛", "风景名胜"),
 )
 MODES = {"walk": "步行", "bike": "骑行", "drive": "驾车"}
 NAV_MODES = {"walk": "walk", "bike": "ride", "drive": "car"}
@@ -81,7 +83,7 @@ def infer_query(query: str, category: str = "", radius: int = 3000, mode: str = 
 
 
 def infer_origin(query: str) -> str:
-    found = re.search(r"(?:我在|位于|从|在)([^，。！？,]{2,40}?)(?:附近|周围|周边|出发|想找|找个|找一家|想去)", query)
+    found = re.search(r"(?:我在|位于|从|在)([^，。！？,]{2,40}?)(?:附近|周围|周边|出发|想找|找个|找一家|想去|[，,])", query)
     return found.group(1).strip() if found else ""
 
 
@@ -124,7 +126,10 @@ class AmapClient:
         entries = data.get("geocodes", [])
         if not isinstance(entries, list) or not entries:
             raise ExploreError("未查到起点地址，请使用更完整的地址或 --coordinates。")
-        return coords(str(entries[0]["location"]))
+        try:
+            return coords(str(entries[0]["location"]))
+        except (KeyError, TypeError, ExploreError) as exc:
+            raise ExploreError("起点地理编码没有返回有效坐标。") from exc
 
     def around(self, origin: str, keyword: str, radius: int, size: int = 20) -> list:
         data = self.call("/v5/place/around", {
@@ -138,11 +143,12 @@ class AmapClient:
     def route(self, origin: str, destination: str, mode: str) -> dict:
         data = self.call("/v5/direction/" + {"walk": "walking", "bike": "bicycling", "drive": "driving"}[mode],
                          {"origin": origin, "destination": destination, "show_fields": "cost"})
-        options = data.get("route", {}).get("paths", [])
-        if not isinstance(options, list) or not options:
+        route_data = data.get("route")
+        options = route_data.get("paths") if isinstance(route_data, dict) else None
+        if not isinstance(options, list) or not options or not isinstance(options[0], dict):
             raise ExploreError("高德未返回可用的路线。")
         option = options[0]
-        cost = option.get("cost") or {}
+        cost = option.get("cost") if isinstance(option.get("cost"), dict) else {}
         duration = cost.get("duration") or option.get("duration")
         try:
             seconds = round(float(duration)) if duration not in (None, "") else None

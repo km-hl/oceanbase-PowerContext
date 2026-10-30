@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1321" />
+    <meta name="description" content="浏览器本地向量化 + seekdb 全文和向量混合检索" />
+    <title>StepFun Lab · 端侧 AI 知识库</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand"><span class="brand-icon">S</span><span>StepFun <b>Knowledge Lab</b></span></div>
+        <div class="chip"><span class="status-dot"></span> Browser AI × seekdb</div>
+      </header>
+      <main class="layout">
+        <section class="hero">
+          <p class="eyebrow">OCEANBASE · EDGE AI ENGINEERING</p>
+          <h1>把知识留在身边，<em>把计算放在端侧。</em></h1>
+          <p>文档在浏览器内完成分块与 384 维 Embedding；向量写入 seekdb，由原生全文索引 + HNSW 检索并融合排序。</p>
+          <div class="metrics">
+            <div><strong id="document-count">—</strong><span>已导入知识块</span></div>
+            <div><strong id="engine-state">连接中</strong><span>数据库状态</span></div>
+            <div><strong id="inference-state">未加载</strong><span>本地推理模型</span></div>
+          </div>
+        </section>
+        <div class="columns">
+          <section class="panel">
+            <div class="panel-head"><span class="step">01</span><h2>端侧推理配置</h2></div>
+            <p class="hint">模型参数与文档均在本地浏览器处理；只有文本块和计算后的向量传到你部署的 seekdb 服务。</p>
+            <div class="form-grid">
+              <label>推理后端<select id="backend"><option value="wasm">WASM · CPU / 通用</option><option value="webgpu">WebGPU · GPU 加速</option></select></label>
+              <label>模型精度<select id="dtype"><option value="q8">INT8 · q8 量化</option><option value="fp32">FP32 · 原始精度</option></select></label>
+            </div>
+            <div class="model-line"><span>多语言 MiniLM-L12-v2</span><code>384 dimensions</code></div>
+            <div class="button-row"><button id="load-button" class="button muted">预热模型</button><button id="benchmark-button" class="button muted">运行推理基准</button></div>
+            <div id="benchmarks" class="benchmarks"><span class="empty">切换后端和精度，再分别测量可比较性能。</span></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><span class="step">02</span><h2>导入个人语料</h2></div>
+            <p class="hint">支持 TXT / MD / CSV / JSON / LOG，单文件最大 2 MiB。每块最多 380 字符、48 字符重叠；在本地批量编码。</p>
+            <label class="dropzone" for="file-input"><span class="drop-icon">⇧</span><strong>选择文档并向量化</strong><small>点击选择一个或多个文件</small></label>
+            <input id="file-input" type="file" multiple accept=".txt,.md,.csv,.json,.log,text/plain,text/markdown" hidden />
+            <div class="button-row"><button id="sample-button" class="button muted">导入示例语料</button><span id="import-progress" class="progress-label">尚未导入</span></div>
+            <div class="documents-header"><h3>我的语料</h3><button id="refresh-button" class="link-button">刷新</button></div>
+            <div id="documents" class="documents"><span class="empty">正在查询数据库…</span></div>
+          </section>
+        </div>
+        <section class="panel search-panel">
+          <div class="panel-head"><span class="step">03</span><h2>seekdb 混合检索</h2></div>
+          <form id="search-form">
+            <label class="search-input-wrap"><input id="query" required maxlength="500" placeholder="例如：向量检索与关键词搜索有什么区别？" /><button id="search-button" class="button primary" type="submit">检索知识库</button></label>
+            <div class="search-options"><label>检索模式 <select id="search-mode"><option value="hybrid">Hybrid · 双通道 RRF</option><option value="vector">Vector · 语义相似度</option><option value="text">Full-text · 关键词</option></select></label><span id="search-stats">结果可追溯至原始文档块</span></div>
+          </form>
+          <div id="results" class="results"><div class="placeholder">导入语料后，在这里尝试跨关键词的语义搜索。</div></div>
+        </section>
+        <div class="status-line" id="status" aria-live="polite">就绪。首次推理需要下载 ONNX 模型；下载完会由浏览器缓存。</div>
+        <footer>StepFun · 浏览器端 ONNX 推理 / OceanBase seekdb 混合检索 · 无云端 Embedding API</footer>
+      </main>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

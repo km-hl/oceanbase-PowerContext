@@ -1,0 +1,32 @@
+services:
+  seekdb:
+    image: oceanbase/seekdb:latest
+    environment:
+      SEEKDB_DATABASE: stepfun_kb
+      ROOT_PASSWORD: ${SEEKDB_PASSWORD:-local-dev-only}
+      CPU_COUNT: "2"
+      MEMORY_LIMIT: 2G
+      DATAFILE_SIZE: 2G
+      LOG_DISK_SIZE: 2G
+    volumes:
+      - seekdb_data:/var/lib/seekdb
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      SEEKDB_HOST: seekdb
+      SEEKDB_PORT: "2881"
+      SEEKDB_USER: root
+      SEEKDB_PASSWORD: ${SEEKDB_PASSWORD:-local-dev-only}
+      SEEKDB_DATABASE: stepfun_kb
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - seekdb
+    restart: unless-stopped
+
+volumes:
+  seekdb_data:

@@ -1,0 +1,7 @@
+__pycache__/
+.pytest_cache/
+.env
+*.pyc
+tests/
+dify/
+README.md

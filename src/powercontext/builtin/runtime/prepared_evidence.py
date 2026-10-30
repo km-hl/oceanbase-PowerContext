@@ -21,8 +21,9 @@ import math
 import re
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
+from powercontext._lexical import english_stem, english_terms
 from powercontext.artifacts import ArtifactAddress
 from powercontext.builtin.runtime.models import PrepareContextRequest, PreparedContext
 from powercontext.builtin.runtime.prepared_context import (
@@ -98,17 +99,8 @@ _STOP = frozenset([
 
 
 def _terms(text: str) -> list[str]:
-    terms = []
-    for word in re.findall(r"[^\W_]+", text.lower()):
-        if word in _STOP:
-            continue
-        if len(word) > 5:
-            for suffix in ("ation", "ing", "ed", "es", "s"):
-                if word.endswith(suffix):
-                    word = word[: -len(suffix)]
-                    break
-        terms.append(word)
-    return terms
+    excluded = {english_stem(word) for word in _STOP}
+    return [word for word in english_terms(text) if word not in excluded]
 
 
 def _spans(text: str) -> list[tuple[int, int]]:
@@ -147,37 +139,24 @@ def select_memory_evidence(
 ) -> PreparedContextBuild:
     """Rank candidate sentences and admit exact intervals within the final byte budget."""
     documents = [(group.scope_id, hit) for group in groups for hit in group.hits]
-    query = _terms(request.query)
-    query_terms = set(query)
+    query_terms = set(_terms(request.query))
     frequency: Counter[str] = Counter()
     for _, hit in documents:
         frequency.update(set(_terms(hit.text)))
-    weights = {term: math.log(1 + (len(documents) + 1) / (frequency[term] + 1)) for term in query_terms}
-    ranked = []
-    texts: dict[tuple[str, str, str], str] = {}
+    weights = _query_weights(request.query, query_terms, frequency, len(documents))
+    plans = []
+    fallback = []
     for scope_id, hit in documents:
         address = MemoryEntryAddress(
             ArtifactAddress(scope_id=scope_id, artifact=hit.memory_ref), hit.entry_id, hit.entry_version_id
         )
-        texts[(scope_id, hit.entry_id, hit.entry_version_id)] = hit.text
-        for start, end in _spans(hit.text):
-            terms = _terms(hit.text[start:end])
-            common = set(terms) & query_terms
-            score = sum(weights[term] for term in common)
-            # Matching several query concepts beats a repeated isolated keyword.
-            score *= 1 + len(common) / max(1, len(query_terms))
-            score /= 1 + len(terms) / 100
-            if score > 0:
-                ranked.append((score, PreparedMemoryFragment(address, start, end, hit.text[start:end])))
-    ranked.sort(key=lambda item: -item[0])
-    selected: list[PreparedMemoryFragment] = []
-    for _, fragment in ranked:
-        key = (fragment.address.memory.scope_id, fragment.address.entry_id, fragment.address.entry_version_id)
-        proposed = _merge(selected, fragment, texts[key])
-        if len(_render(proposed).encode("utf-8")) <= request.max_bytes:
-            selected = proposed
+        alternatives, sentences = _document_plans(hit.text, address, weights, request.max_bytes)
+        plans.append(alternatives)
+        fallback.extend((sentence.score, sentence.fragment) for sentence in sentences if sentence.score > 0)
+    selected = _combine_plans(plans, request.max_bytes)
     if not selected:
-        selected = _fit_long_sentence(ranked, query_terms, request.max_bytes)
+        fallback.sort(key=lambda item: -item[0])
+        selected = _fit_long_sentence(fallback, query_terms, request.max_bytes)
     if not selected:
         return PreparedContextBuild(PreparedContext(status="empty", content=None, content_bytes=0), ())
     content = _render(selected)
@@ -186,6 +165,127 @@ def select_memory_evidence(
         origins=tuple(fragment.address for fragment in selected),
         fragments=tuple(selected),
     )
+
+
+def _query_weights(query: str, terms: set[str], frequency: Counter[str], document_count: int) -> dict[str, float]:
+    entities = {
+        english_stem(word.casefold())
+        for word in re.findall(r"[^\W_]+", query)
+        if any(letter.isalpha() for letter in word)
+        and (any(letter.isdigit() for letter in word) or (len(word) >= 2 and word.isupper()))
+    }
+    operators = set(
+        english_terms(
+            "associate association express expression activate activation increase decrease reduce promote induce regulate higher lower positive negative"
+        )
+    )
+    return {
+        term: math.log(1 + (document_count + 1) / (frequency[term] + 1))
+        * (2.5 if term in entities else 0.5 if term in operators else 1.0)
+        for term in sorted(terms)
+    }
+
+
+@dataclass(frozen=True)
+class _Sentence:
+    fragment: PreparedMemoryFragment
+    terms: frozenset[str]
+    score: float
+
+
+@dataclass(frozen=True)
+class _Plan:
+    fragments: tuple[PreparedMemoryFragment, ...]
+    score: float
+    cost: int
+
+
+def _document_plans(
+    text: str, address: MemoryEntryAddress, weights: dict[str, float], max_bytes: int
+) -> tuple[list[_Plan], list[_Sentence]]:
+    total = sum(weights.values()) or 1.0
+    all_terms = set(_terms(text))
+    prior = sum(weight for term, weight in weights.items() if term in all_terms) / total
+    sentences = []
+    for index, (start, end) in enumerate(_spans(text)):
+        body = text[start:end]
+        terms = frozenset(_terms(body))
+        score = sum(weights.get(term, 0.0) for term in sorted(terms)) / total
+        if index == 0:
+            score *= 0.8
+        if re.search(r"\b(results?|conclusions?|found|showed|demonstrated|revealed|observed)\b", body, re.I):
+            score *= 1.15
+        sentences.append(_Sentence(PreparedMemoryFragment(address, start, end, body), terms, score))
+    alternatives = []
+    envelope = len(_render(()).encode("utf-8"))
+    for start in range(len(sentences)):
+        for end in range(start + 1, len(sentences) + 1):
+            first, last = sentences[start].fragment.start, sentences[end - 1].fragment.end
+            fragment = PreparedMemoryFragment(address, first, last, text[first:last])
+            cost = len(_render((fragment,)).encode("utf-8"))
+            if cost > max_bytes:
+                break
+            score = _plan_score(sentences[start:end], prior, weights, len(fragment.text))
+            if score > 0:
+                alternatives.append(_Plan((fragment,), score, cost - envelope))
+    alternatives.extend(_sparse_plans(sentences, text, prior, weights, max_bytes))
+    frontier = []
+    best_score = -1.0
+    for plan in sorted(alternatives, key=lambda item: (item.cost, -item.score)):
+        if plan.score > best_score:
+            frontier.append(plan)
+            best_score = plan.score
+    return frontier, sentences
+
+
+def _sparse_plans(
+    sentences: Sequence[_Sentence], text: str, prior: float, weights: dict[str, float], max_bytes: int
+) -> list[_Plan]:
+    """Consider separate evidence regions without paying for an irrelevant gap."""
+    relevant = sorted((sentence for sentence in sentences if sentence.score > 0), key=lambda item: -item.score)
+    alternatives = []
+    envelope = len(_render(()).encode("utf-8"))
+    for count in range(2, min(5, len(relevant)) + 1):
+        included: list[PreparedMemoryFragment] = []
+        for sentence in sorted(relevant[:count], key=lambda item: item.fragment.start):
+            included = _merge(included, sentence.fragment, text)
+        cost = len(_render(included).encode("utf-8"))
+        if cost <= max_bytes:
+            score = _plan_score(relevant[:count], prior, weights, sum(len(fragment.text) for fragment in included))
+            alternatives.append(_Plan(tuple(included), score, cost - envelope))
+    return alternatives
+
+
+def _combine_plans(groups: Sequence[Sequence[_Plan]], max_bytes: int) -> list[PreparedMemoryFragment]:
+    """Choose a cost/utility frontier, charging the envelope only once."""
+    envelope = len(_render(()).encode("utf-8"))
+    states: dict[int, tuple[float, tuple[PreparedMemoryFragment, ...]]] = {envelope: (0.0, ())}
+    for alternatives in groups:
+        updated = dict(states)
+        for cost, (score, fragments) in states.items():
+            for plan in alternatives:
+                combined_cost = cost + plan.cost + bool(fragments)
+                if combined_cost > max_bytes:
+                    break
+                combined_score = score + plan.score
+                if combined_score > updated.get(combined_cost, (-1.0, ()))[0]:
+                    updated[combined_cost] = (combined_score, fragments + plan.fragments)
+        states = {}
+        best_score = -1.0
+        for cost, state in sorted(updated.items()):
+            if state[0] > best_score:
+                states[cost] = state
+                best_score = state[0]
+    return list(max(states.values(), key=lambda item: item[0])[1])
+
+
+def _plan_score(sentences: Sequence[_Sentence], prior: float, weights: dict[str, float], length: int) -> float:
+    scores = sorted((sentence.score for sentence in sentences), reverse=True)
+    if not scores or scores[0] <= 0:
+        return 0.0
+    common = set().union(*(sentence.terms for sentence in sentences))
+    coverage = sum(weight for term, weight in weights.items() if term in common) / (sum(weights.values()) or 1.0)
+    return prior**2 * (scores[0] + 0.5 * sum(scores[1:4]) + 0.0003 * length) + 0.15 * coverage
 
 
 def _fit_long_sentence(

@@ -58,4 +58,10 @@ uv run python scripts/run_competition_selftests.py --task pi --task lifecycle
 
 正式评测另有公开包没有提供的完整语料、标注和测量序列，包括 PDF 页面检索召回率、SciFact 证据质量、40 轮增量净传输节省，以及混合检索逐查询质量与延迟。这些门槛需要平台实际验收，不能从公开样例通过推定达标。
 
-生命周期图的处理成本为一个 scope 的节点和边遍历，原生 Memory 状态按 artifact 分组写入；题面规模为每个 scope 16–20 个节点。数量触发按有界 dirty-intent 页读取 journal/cursor 元数据，不扫描 Source 正文。PDF 检索按查询读取有界候选，不为每个问题全量读取所有页面。
+生命周期图的处理成本为一个 scope 的节点和边遍历，原生 Memory 状态按 artifact 分组写入；题面规模为每个 scope 16–20 个节点。数量触发按有界 dirty-intent 页读取 journal/cursor 元数据，不扫描 Source 正文。
+
+PDF 检索结合原生全文搜索与页级 BM25 排序，统一词形，并为财务报表问题补充通用查询概念。首次查询及 Memory head 改变时，通过公开 `Memory.list()` 读取当前条目并重建派生页索引；同一 scoped Memory 对象且 head 不变时复用缓存，最多保留四个活跃对象的索引。建索引需要扫描当前 Memory 正文，缓存空间随全文词项数增长；每个问题仍需对页索引排序及回查返回引用。这是召回质量与读取成本的取舍，不是增量索引或恒定成本检索。
+
+证据选择对完整句子窗口和分散的原文句子生成候选，通过包含引用及 envelope 开销的字节预算组合片段。共享英文词形归一化仅用于排序，持久化正文、返回原文和字符坐标不变。默认关闭时沿用普通 prepare。
+
+扩展质量检查的数据范围、命令、结果及限制见[检索质量检查](competition-retrieval-quality.md)。

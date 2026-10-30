@@ -84,6 +84,11 @@ class AmapNearbyTests(unittest.TestCase):
         self.assertIn("暂不可用", amap.markdown(data))
         self.assertIn("navigation_url", data["recommendations"][0])
 
+    def test_open_ended_fun_request(self):
+        result = amap.explore("我在北京望京SOHO附近，周边有什么好玩的？", self.client, limit=1)
+        self.assertEqual(result["keyword"], "风景名胜")
+        self.assertEqual(len(result["recommendations"]), 1)
+
     def test_empty_results_no_fabrication(self):
         client = amap.AmapClient("test-key", fetch=lambda path, params: {"status": "1", "pois": []})
         result = amap.explore("附近公园", client, coordinates=START)
@@ -110,7 +115,7 @@ class AmapNearbyTests(unittest.TestCase):
         with self.assertRaises(amap.ExploreError):
             amap.infer_query("100公里内找书店")
         with self.assertRaises(amap.ExploreError):
-            amap.infer_query("我想随便逛逛")
+            amap.infer_query("找一个不明类型XYZ")
 
     def test_cli_json_output(self):
         output = io.StringIO()

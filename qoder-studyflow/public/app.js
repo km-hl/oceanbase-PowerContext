@@ -165,15 +165,20 @@ function putResult(target, message) {
 
 function showSearch(result) {
   const target = $("searchOutput");
-  const items = result.entries || result.results || result.matches || result.memories || (Array.isArray(result) ? result : []);
-  if (!Array.isArray(items) || !items.length) {
-    const reason = result.status === "empty" ? "PowerContext 没有发现相关记忆。" : "暂无匹配结果。请先在笔记中点击“存为长期记忆”，然后再搜索。";
+  const items = result.hits ?? result.entries ?? result.results ?? result.matches ?? result.memories ?? (Array.isArray(result) ? result : null);
+  if (!Array.isArray(items)) {
+    return putResult(target, "PowerContext 返回了无法识别的搜索结构，请检查接口响应。");
+  }
+  if (!items.length) {
+    const reason = result.status === "empty" ? "PowerContext 没有发现相关记忆。" : "当前 Scope 暂无匹配记忆。请检查笔记是否已点击“存为长期记忆”。";
     return putResult(target, reason);
   }
   target.replaceChildren(...items.map(item => {
     const card = node("div", "memory-card");
     card.append(node("div", "", item.text || item.content || item.entry?.text || item.memory?.text || JSON.stringify(item)));
-    if (item.citation || item.kind) card.append(node("small", "", [item.kind, typeof item.citation === "string" ? item.citation : ""].filter(Boolean).join(" · ")));
+    const citation = typeof item.citation === "string" ? item.citation : item.citation ? JSON.stringify(item.citation) : "";
+    const matched = Array.isArray(item.matched_by) ? item.matched_by.join("/") : "";
+    if (citation || matched) card.append(node("small", "", [matched, citation].filter(Boolean).join(" · ")));
     return card;
   }));
 }

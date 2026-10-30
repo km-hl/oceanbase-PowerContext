@@ -59,7 +59,7 @@ class SDDContextTest(unittest.TestCase):
     def test_real_code_edit_invalidates_proof_and_failed_rerun(self):
         self.engine.run_test("arith", [sys.executable, "tests/test_calc.py"],
                              files=("src/calc.py", "tests/test_calc.py"), specs=("arithmetic",))
-        (self.root / "src" / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+        (self.root / "src" / "calc.py").write_text("def add(a, b):\n    return a - b  # deliberately broken\n", encoding="utf-8")
         obsolete = self.context()["verifications"][0]
         self.assertEqual(obsolete["status"], "stale_or_failed")
         self.assertIn("file_changed:src/calc.py", obsolete["reasons"])
@@ -81,6 +81,14 @@ class SDDContextTest(unittest.TestCase):
         self.assertEqual([s["revision"] for s in view["specifications"]], [2])
         self.assertEqual(view["inactive_specs"][0]["reason"], "older_revision")
         self.assertIn("spec_changed:arithmetic", view["verifications"][0]["reasons"])
+
+    def test_same_revision_spec_edit_invalidates_verified_evidence(self):
+        self.engine.run_test("arith", [sys.executable, "tests/test_calc.py"],
+                             files=("src/calc.py", "tests/test_calc.py"), specs=("arithmetic",))
+        self.spec("arithmetic", 1, decisions=["New requirement without incrementing revision"])
+        result = self.context()["verifications"][0]
+        self.assertEqual(result["status"], "stale_or_failed")
+        self.assertIn("spec_changed:arithmetic", result["reasons"])
 
     def test_superseded_spec_is_never_presented_as_current(self):
         self.spec("modern-arithmetic", 1, title="Arithmetic API replacement",

@@ -30,13 +30,136 @@ from powercontext.builtin.runtime import (
     SubmitSourceObservation,
     open_builtin_runtime,
 )
-from powercontext.builtin.runtime.prepared_context import PreparedContextBuilder, PreparedMemoryCandidates
+from powercontext.builtin.runtime.errors import PreparedContextInvariantError
+from powercontext.builtin.runtime.prepared_context import (
+    MemoryEntryAddress,
+    PreparedContextBuilder,
+    PreparedMemoryCandidates,
+)
 from powercontext.builtin.runtime.prepared_text import TRUST_POLICY
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import ContentSource
 from powercontext.sources import SourceDefinitionRegistry, manifest_for_definition, project_source_for_transport
 from powercontext.sources.pdf_pages import PDF_PAGE_SOURCE_DEFINITION, PDFPageInput, search_pdf_pages
 from powercontext.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY
+
+
+@pytest.mark.parametrize("selection", [False, True])
+@pytest.mark.parametrize("missing", [False, True])
+def test_prepare_modes_reject_missing_or_mismatched_candidate_revision(selection, missing):
+    ref = ArtifactRef(family="memory", artifact_id="main", revision=1)
+    hit = MemoryHit(
+        memory_ref=ref,
+        entry_id="e",
+        entry_version_id="v",
+        text="Cobalt sensor records 37 degrees.",
+        score=1,
+        matched_by=("fts",),
+    )
+    group_ref = None if missing else ref.model_copy(update={"revision": 2})
+    code = "memory-ref-missing" if missing else "memory-ref-mismatch"
+    with pytest.raises(PreparedContextInvariantError, match=code):
+        PreparedContextBuilder().build_scopes_result(
+            request=PrepareContextRequest(query="cobalt sensor", evidence_selection=selection, max_bytes=1400),
+            current_scope_id="scope",
+            memory_candidates=(PreparedMemoryCandidates(scope_id="scope", memory_ref=group_ref, hits=(hit,)),),
+        )
+
+
+@pytest.mark.parametrize("selection", [False, True])
+@pytest.mark.parametrize("invalid_field", ["entry_id", "entry_version_id", "text"])
+def test_prepare_modes_skip_empty_citations_and_deduplicate_entry_versions(selection, invalid_field):
+    ref = ArtifactRef(family="memory", artifact_id="main", revision=1)
+    hit = MemoryHit(
+        memory_ref=ref,
+        entry_id="good",
+        entry_version_id="v",
+        text="Cobalt sensor records 37 degrees.",
+        score=1,
+        matched_by=("fts",),
+    )
+    bad = hit.model_copy(update={"entry_id": "other", "entry_version_id": "other", invalid_field: " "})
+    result = PreparedContextBuilder().build_scopes_result(
+        request=PrepareContextRequest(query="cobalt sensor", evidence_selection=selection, max_bytes=1400),
+        current_scope_id="scope",
+        memory_candidates=(PreparedMemoryCandidates(scope_id="scope", memory_ref=ref, hits=(bad, hit, hit)),),
+    )
+    assert len(result.origins) == 1
+    origin = result.origins[0]
+    assert isinstance(origin, (MemoryCitation, MemoryEntryAddress))
+    assert origin.entry_id == "good"
+
+
+def test_evidence_deduplication_preserves_identical_entries_in_distinct_scopes():
+    ref = ArtifactRef(family="memory", artifact_id="main", revision=1)
+    hit = MemoryHit(
+        memory_ref=ref,
+        entry_id="same",
+        entry_version_id="v",
+        text="Cobalt sensor records 37 degrees.",
+        score=1,
+        matched_by=("fts",),
+    )
+    result = PreparedContextBuilder().build_scopes_result(
+        request=PrepareContextRequest(query="cobalt sensor", evidence_selection=True, max_bytes=2400),
+        current_scope_id="alpha",
+        memory_candidates=tuple(
+            PreparedMemoryCandidates(scope_id=scope, memory_ref=ref, hits=(hit, hit)) for scope in ("alpha", "beta")
+        ),
+    )
+    assert len(result.fragments) == len(result.origins) == 2
+    assert {fragment.address.memory.scope_id for fragment in result.fragments} == {"alpha", "beta"}
+    assert tuple(fragment.address for fragment in result.fragments) == result.origins
+
+
+@pytest.mark.parametrize(
+    ("query", "decoy", "evidence"),
+    [
+        (
+            "QX-2 inhibits RY-2 during calibration",
+            "QX-2 inhibits an unrelated target during calibration.",
+            "QX2 inhibited RY2 and restored calibration stability at 37 degrees.",
+        ),
+        (
+            "ZX6C hi sensors suppress amber signal",
+            "ZX6C hi sensors suppress an unrelated signal.",
+            "ZX-6C(high) sensors suppressed amber signal by 37 percent.",
+        ),
+        (
+            "QX-2 sensor calibration",
+            "QX3 sensor calibration produced 19 units.",
+            "QX2 sensor calibration produced 37 units.",
+        ),
+        (
+            "QX2 activation increases cobalt sensor density",
+            "QX2 activation increases copper sensor density.",
+            "QX2 activation decreases cobalt sensor density by 37 percent.",
+        ),
+        (
+            "QX2 activation increases cobalt sensor density",
+            "QX2 activation decreases cobalt sensor density.",
+            "QX2 activation increases cobalt sensor density.",
+        ),
+        (
+            "QX2 activation decreases cobalt sensor density",
+            "QX2 activation increases cobalt sensor density.",
+            "QX2 activation decreases cobalt sensor density.",
+        ),
+    ],
+)
+def test_evidence_distinguishes_identifiers_and_preserves_refuting_evidence(query, decoy, evidence):
+    ref = ArtifactRef(family="memory", artifact_id="main", revision=1)
+    hits = tuple(
+        MemoryHit(memory_ref=ref, entry_id=str(index), entry_version_id="v", text=text, score=1, matched_by=("fts",))
+        for index, text in enumerate((decoy, evidence))
+    )
+    result = PreparedContextBuilder().build_scopes_result(
+        request=PrepareContextRequest(query=query, evidence_selection=True, max_bytes=700),
+        current_scope_id="scope",
+        memory_candidates=(PreparedMemoryCandidates(scope_id="scope", memory_ref=ref, hits=hits),),
+    )
+    assert result.context.content_bytes <= 700
+    assert any(fragment.address.entry_id == "1" and fragment.text == evidence for fragment in result.fragments)
 
 
 def test_query_inflections_select_complete_literal_evidence_within_budget():
@@ -52,7 +175,7 @@ def test_query_inflections_select_complete_literal_evidence_within_budget():
     result = PreparedContextBuilder().build_scopes_result(
         request=PrepareContextRequest(query="calcium enzyme activation", evidence_selection=True, max_bytes=1000),
         current_scope_id="scope",
-        memory_candidates=(PreparedMemoryCandidates(scope_id="scope", hits=(hit,)),),
+        memory_candidates=(PreparedMemoryCandidates(scope_id="scope", memory_ref=hit.memory_ref, hits=(hit,)),),
     )
     assert result.context.content_bytes <= 1000
     assert any("Calcium activated the enzymes and produced 37 units." in fragment.text for fragment in result.fragments)
@@ -85,7 +208,7 @@ def test_evidence_retains_sentence_boundary_whitespace_at_exact_wire_budget():
     result = PreparedContextBuilder().build_scopes_result(
         request=PrepareContextRequest(query="Q. alba neutralized 37 units", evidence_selection=True, max_bytes=budget),
         current_scope_id="scope",
-        memory_candidates=(PreparedMemoryCandidates(scope_id="scope", hits=(hit,)),),
+        memory_candidates=(PreparedMemoryCandidates(scope_id="scope", memory_ref=hit.memory_ref, hits=(hit,)),),
     )
     assert result.context.content_bytes <= budget
     assert any(fragment.start <= start and end <= fragment.end for fragment in result.fragments)
@@ -116,7 +239,7 @@ def test_evidence_matches_explicit_abbreviation_without_counting_its_expansion_t
             max_bytes=700,
         ),
         current_scope_id="scope",
-        memory_candidates=(PreparedMemoryCandidates(scope_id="scope", hits=hits),),
+        memory_candidates=(PreparedMemoryCandidates(scope_id="scope", memory_ref=hits[0].memory_ref, hits=hits),),
     )
     assert result.context.content_bytes <= 700
     assert any(

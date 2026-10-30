@@ -33,6 +33,7 @@ from powercontext.builtin.runtime.prepared_context import (
     PreparedContextBuild,
     PreparedMemoryCandidates,
     PreparedMemoryFragment,
+    _validated_memory_hits,
 )
 from powercontext.builtin.runtime.prepared_text import TRUST_POLICY
 
@@ -98,6 +99,15 @@ _STOP = frozenset([
     "results",
 ])
 
+# Opposite directions can supply refuting evidence for the same subject. Their
+# shared feature keeps that evidence relevant; literal directions break ties.
+_DIRECTION_TERMS = frozenset(
+    english_terms(
+        "increase decrease reduce enhance promote inhibit suppress attenuate higher lower greater fewer positive negative"
+    )
+)
+_DIRECTION_FEATURE = "relation:change"
+
 
 def _terms(text: str) -> list[str]:
     excluded = {english_stem(word) for word in _STOP}
@@ -132,8 +142,31 @@ def _abbreviations(text: str) -> list[tuple[str, frozenset[str]]]:
 
 def _concept_terms(text: str, aliases: Sequence[tuple[str, frozenset[str]]]) -> frozenset[str]:
     terms = set(_terms(text))
-    terms.update(short for short, long in aliases if long <= terms)
+    if terms & _DIRECTION_TERMS:
+        terms.add(_DIRECTION_FEATURE)
+    while additions := {short for short, long in aliases if long <= terms} - terms:
+        terms.update(additions)
     return frozenset(terms)
+
+
+def _identifier_aliases(text: str) -> list[tuple[str, frozenset[str]]]:
+    """Match punctuation variants of alphanumeric identifiers without changing evidence."""
+    identifiers = re.finditer(
+        r"\b[A-Za-z]+-?\d+[A-Za-z]*(?:(?:\s+|\()(?:hi|lo|high|low)\)?|high|low)\b"
+        r"|\b[A-Za-z]+(?:[-_/]\d+[A-Za-z0-9]*)+\b|\b[A-Za-z]+\d+[A-Za-z]*(?:[-_/][A-Za-z0-9]+)+\b",
+        text,
+    )
+    aliases = []
+    for match in identifiers:
+        compact = re.sub(r"[^a-z0-9]", "", match[0].casefold())
+        if compact.endswith("high"):
+            compact = compact[:-4] + "hi"
+        elif compact.endswith("low"):
+            compact = compact[:-3] + "lo"
+        long = frozenset(_terms(match[0]))
+        if long and compact not in long:
+            aliases.append((compact, long))
+    return aliases
 
 
 def _spans(text: str) -> list[tuple[int, int]]:
@@ -180,18 +213,23 @@ def select_memory_evidence(
     request: PrepareContextRequest, groups: Sequence[PreparedMemoryCandidates]
 ) -> PreparedContextBuild:
     """Rank candidate sentences and admit exact intervals within the final byte budget."""
-    documents = [(group.scope_id, hit) for group in groups for hit in group.hits]
+    documents = [
+        (group.scope_id, hit) for group in groups for hit in _validated_memory_hits(group.memory_ref, group.hits)
+    ]
     query_terms = set(_terms(request.query))
     aliases = list(
         dict.fromkeys(
-            pair for text in (request.query, *(hit.text for _, hit in documents)) for pair in _abbreviations(text)
+            pair
+            for text in (request.query, *(hit.text for _, hit in documents))
+            for pair in (*_abbreviations(text), *_identifier_aliases(text))
         )
     )
-    aliases = [(short, long) for short, long in aliases if short in query_terms or long <= query_terms]
-    for short, long in aliases:
-        if long <= query_terms:
-            query_terms.difference_update(long)
-            query_terms.add(short)
+    aliases = [(short, long) for short, long in aliases if short not in long]
+    expanded_query = _concept_terms(request.query, aliases)
+    applicable = [(short, long) for short, long in aliases if short in expanded_query or long <= expanded_query]
+    folded = [(short, long) for short, long in applicable if long <= expanded_query]
+    query_terms = set(expanded_query) - set().union(*(long for _, long in folded))
+    aliases = applicable
     frequency: Counter[str] = Counter()
     for _, hit in documents:
         frequency.update(_concept_terms(hit.text, aliases))
@@ -220,6 +258,7 @@ def _query_weights(query: str, terms: set[str], frequency: Counter[str], documen
         if any(letter.isalpha() for letter in word)
         and (any(letter.isdigit() for letter in word) or (len(word) >= 2 and word.isupper()))
     }
+    entities.update(short for short, _long in _identifier_aliases(query))
     operators = set(
         english_terms(
             "associate association express expression activate activation increase decrease reduce promote induce regulate higher lower positive negative inhibit suppress prevent attenuate enhance impaired impair lack absence greater fewer"
@@ -229,7 +268,15 @@ def _query_weights(query: str, terms: set[str], frequency: Counter[str], documen
         # A term shared by every candidate carries less distinguishing evidence
         # than a term confined to one candidate.
         term: math.log(1 + (document_count - frequency[term] + 0.5) / (frequency[term] + 0.5))
-        * (2.5 if term in entities else 1.4 if term in operators else 1.0)
+        * (
+            2.5
+            if term in entities
+            else 0.25
+            if term in _DIRECTION_TERMS
+            else 1.4
+            if term in operators or term == _DIRECTION_FEATURE
+            else 1.0
+        )
         for term in sorted(terms)
     }
 
@@ -258,7 +305,8 @@ def _sentence_candidates(
     total = sum(weights.values()) or 1.0
     sentences = []
     section = ""
-    for index, (start, end) in enumerate(_spans(text)):
+    spans = _spans(text)
+    for index, (start, end) in enumerate(spans):
         body = text[start:end]
         terms = _concept_terms(body, aliases)
         score = sum(weights.get(term, 0.0) for term in sorted(terms)) / total
@@ -354,9 +402,7 @@ def _combine_plans(groups: Sequence[Sequence[_Plan]], max_bytes: int) -> list[Pr
                 combined_cost = cost + plan.cost + bool(fragments)
                 if combined_cost > max_bytes:
                     break
-                # Prefer another complete sentence from a strong source over a
-                # marginal, redundant citation; allow complementary sources.
-                combined_score = score + plan.score * (0.82 if fragments else 1.0)
+                combined_score = score + plan.score
                 if combined_score > updated.get(combined_cost, (-1.0, ()))[0]:
                     updated[combined_cost] = (combined_score, fragments + plan.fragments)
         states = {}
@@ -375,9 +421,7 @@ def _plan_score(sentences: Sequence[_Sentence], prior: float, weights: dict[str,
     common = set().union(*(sentence.terms for sentence in sentences))
     coverage = sum(weight for term, weight in weights.items() if term in common) / (sum(weights.values()) or 1.0)
     # Coverage cannot independently reward a document with weak overall relevance.
-    return prior**2 * (
-        scores[0] + 0.55 * sum(scores[1:4]) + 0.0004 * min(length, 1600) + 0.20 * coverage
-    )
+    return prior**2 * (scores[0] + 0.55 * sum(scores[1:4]) + 0.0004 * min(length, 1600) + 0.20 * coverage)
 
 
 def _window_plans(

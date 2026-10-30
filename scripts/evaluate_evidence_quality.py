@@ -74,11 +74,18 @@ parser.add_argument("--max-claims", type=int, default=0)
 parser.add_argument("--skip-claims", type=int, default=0)
 parser.add_argument("--save-candidates", type=Path)
 parser.add_argument("--native", action="store_true", help="Use real capture, Memory search, citations and readback")
+parser.add_argument(
+    "--all-candidates",
+    action="store_true",
+    help="Pass all three persisted abstracts rather than the FTS-admitted subset",
+)
 parser.add_argument("--output", type=Path, required=True)
 args = parser.parse_args()
 root = args.data_dir
 if args.max_claims < 0 or args.skip_claims < 0:
     parser.error("claim counts must be nonnegative")
+if args.all_candidates and not args.native:
+    parser.error("--all-candidates requires --native")
 docs = [json.loads(x) for x in (root / "corpus.jsonl").read_text(encoding="utf-8").splitlines()]
 claims = [json.loads(x) for x in (root / args.claims).read_text(encoding="utf-8").splitlines()]
 
@@ -149,7 +156,21 @@ async def _native_group(runtime, ordinal, query, ids):
         for record in listing.entries
     }
     page = await memory.search(SearchMemoryRequest(query=query, mode="fts", limit=16))
-    return scope.scope_id, page.hits, addresses
+    hits = page.hits
+    if args.all_candidates:
+        retrieved = {hit.entry_id: hit for hit in page.hits}
+        hits = tuple(
+            MemoryHit(
+                memory_ref=record.citation.memory_ref,
+                entry_id=record.entry.entry_id,
+                entry_version_id=record.entry.entry_version_id,
+                text=record.entry.text,
+                score=retrieved[record.entry.entry_id].score if record.entry.entry_id in retrieved else 0,
+                matched_by=retrieved[record.entry.entry_id].matched_by if record.entry.entry_id in retrieved else (),
+            )
+            for record in listing.entries
+        )
+    return scope.scope_id, hits, addresses
 
 
 def _candidate_ids(claim, positive):
@@ -267,7 +288,11 @@ async def _evaluate():
                 result = PreparedContextBuilder().build_scopes_result(
                     request=PrepareContextRequest(query=query, max_bytes=budget, evidence_selection=True),
                     current_scope_id=current_scope,
-                    memory_candidates=(PreparedMemoryCandidates(scope_id=current_scope, hits=hits),),
+                    memory_candidates=(
+                        PreparedMemoryCandidates(
+                            scope_id=current_scope, memory_ref=hits[0].memory_ref if hits else None, hits=hits
+                        ),
+                    ),
                 )
                 await _verify_result(result, budget, ids, addresses, runtime, current_scope)
                 spans = _selected_intervals(result.fragments, addresses[positive].entry_id)
@@ -282,6 +307,7 @@ async def _evaluate():
                     "complete": complete,
                     "positive_selected": bool(spans),
                     "positive_retrieved": any(hit.entry_id == addresses[positive].entry_id for hit in hits),
+                    "candidate_count": len(hits),
                     "doc": positive,
                     "query": query,
                     "selected": [
@@ -297,18 +323,42 @@ async def _evaluate():
         return observed
 
 
+def _group_metrics(observations):
+    """Report fixed 24-claim groups instead of hiding variation in a corpus average."""
+    by_claim = {}
+    for row in observations:
+        by_claim.setdefault(row["claim"], []).append(row)
+    dual_budget = [rows for rows in by_claim.values() if {row["budget"] for row in rows} == {1400, 1800}]
+    groups = []
+    for offset in range(0, len(dual_budget) - 23, 24):
+        rows = [row for pair in dual_budget[offset : offset + 24] for row in pair]
+        groups.append({
+            "claim_offset": offset,
+            "requests": len(rows),
+            "token_recall": sum(row["recall"] for row in rows) / len(rows),
+            "complete_fraction": sum(row["complete"] for row in rows) / len(rows),
+        })
+    return {
+        "groups_of_24_claims": groups,
+        "dual_budget_claims": len(dual_budget),
+        "ungrouped_tail_claims": len(dual_budget) % 24,
+    }
+
+
 observed = asyncio.run(_evaluate())
 summary = {
     "schema": "powercontext.evidence-quality.v1",
     "requests": len(observed),
     "skip_claims": args.skip_claims,
     "max_claims": args.max_claims,
-    "candidate_mode": "native" if args.native else "synthetic",
+    "candidate_mode": "native_all" if args.all_candidates else "native_search" if args.native else "synthetic",
     "positive_retrieved_fraction": sum(x["positive_retrieved"] for x in observed) / max(1, len(observed)),
+    "minimum_candidate_count": min((row["candidate_count"] for row in observed), default=0),
     "token_recall": sum(x["recall"] for x in observed) / max(1, len(observed)),
     "complete_fraction": sum(x["complete"] for x in observed) / max(1, len(observed)),
     "corpus_sha256": hashlib.sha256((root / "corpus.jsonl").read_bytes()).hexdigest(),
     "claims_sha256": hashlib.sha256((root / args.claims).read_bytes()).hexdigest(),
+    **_group_metrics(observed),
     "cases": observed,
 }
 args.output.parent.mkdir(parents=True, exist_ok=True)

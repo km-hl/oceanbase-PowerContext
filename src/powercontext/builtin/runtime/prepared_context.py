@@ -470,20 +470,8 @@ class PreparedContextBuilder:
         *,
         scope_id: str | None = None,
     ) -> tuple[_PreparedContextEntry, ...]:
-        if hits and memory_ref is None:
-            raise PreparedContextInvariantError("memory-ref-missing")
         memory_entries: list[_PreparedContextEntry] = []
-        seen: set[tuple[str, str]] = set()
-        for hit in hits:
-            if hit.memory_ref != memory_ref:
-                raise PreparedContextInvariantError("memory-ref-mismatch")
-
-            citation_key = (hit.entry_id, hit.entry_version_id)
-            if citation_key in seen:
-                continue
-            seen.add(citation_key)
-            if not hit.entry_id.strip() or not hit.entry_version_id.strip() or not hit.text.strip():
-                continue
+        for hit in _validated_memory_hits(memory_ref, hits):
             citation = MemoryCitation(
                 memory_ref=hit.memory_ref,
                 entry_id=hit.entry_id,
@@ -673,6 +661,24 @@ class PreparedContextBuilder:
         if best is None:
             return _EntryFit(dropped_no_fitting_truncation=True)
         return _EntryFit(entry=best)
+
+
+def _validated_memory_hits(memory_ref: ArtifactRef | None, hits: Sequence[MemoryHit]) -> tuple[MemoryHit, ...]:
+    """Validate exact revisions and canonical identities before either preparation mode."""
+    if hits and memory_ref is None:
+        raise PreparedContextInvariantError("memory-ref-missing")
+    selected = []
+    seen: set[tuple[str, str]] = set()
+    for hit in hits:
+        if hit.memory_ref != memory_ref:
+            raise PreparedContextInvariantError("memory-ref-mismatch")
+        identity = (hit.entry_id, hit.entry_version_id)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        if hit.entry_id.strip() and hit.entry_version_id.strip() and hit.text.strip():
+            selected.append(hit)
+    return tuple(selected)
 
 
 def _interleave(

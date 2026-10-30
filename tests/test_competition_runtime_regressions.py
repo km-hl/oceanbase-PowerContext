@@ -158,7 +158,7 @@ def test_evidence_selection_finds_literal_tail_inside_an_over_budget_sentence():
     result = PreparedContextBuilder().build_scopes_result(
         request=PrepareContextRequest(query="cobalt sensor calibration", max_bytes=1200, evidence_selection=True),
         current_scope_id="scope",
-        memory_candidates=(PreparedMemoryCandidates(scope_id="scope", hits=(hit,)),),
+        memory_candidates=(PreparedMemoryCandidates(scope_id="scope", memory_ref=hit.memory_ref, hits=(hit,)),),
     )
     assert result.fragments
     assert result.context.content_bytes <= 1200

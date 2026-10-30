@@ -10,7 +10,9 @@
 
 证据检查使用 [SciFact](https://github.com/allenai/scifact) 的[公开数据发布包](https://scifact.s3-us-west-2.amazonaws.com/release/latest/data.tar.gz)。下载链接可能更新，因此同时记录内容摘要。`corpus.jsonl` 的 SHA-256 为 `b8d6c89624cb2ed74dee8938effc4f5d8bd2086887880af8110d64be4ceade62`；`claims_dev.jsonl` 为 `86f0435d08fdb65d1aa41d1472684f57e6e71930626497bdf4d7a9ec1a632217`；`claims_train.jsonl` 为 `f4c8fa82d8bd0653a9cc8d61a6ea48c25eacea64e90af5dbf390ebb1b74372f0`。claims 与证据采用 CC BY 4.0，论文摘要遵循 S2ORC 的 ODC-By 1.0。
 
-证据检查筛选只有一个证据文档的 claim，以独立的原始词项 TF-IDF 从完整语料中选择两个干扰摘要，通过 claim 和文档身份摘要确定顺序。每个请求包含三篇原始摘要，预算为 1,400 或 1,800 bytes；外部检查确认全部标注证据及引用可以装入预算后才计入。词项召回使用 `[a-z]+|\d+` 和词频多重集合，完整覆盖按原字符区间计算。候选负例的构造及引用长度会影响难度，因此不能与平台数字直接等同。
+证据检查筛选只有一个证据文档的 claim，以独立的原始词项 TF-IDF 从完整语料中选择两个干扰摘要，通过 claim 和文档身份摘要确定采集顺序。摘要必须满足 Memory 原生的 8,192 bytes 条目限制。`--native` 将三篇摘要采集到真实 Runtime，通过 `Memory.search(mode="fts", limit=16)` 获得实际候选，再交给选择器；输出使用真实 scope、entry、version 身份，并通过 `Memory.get` 回查。被搜索过滤的证据文档仍按未命中计分。无 `--native` 时仅为合成候选的 Builder 检查，不能代表整条路径。
+
+预算为 1,400 或 1,800 bytes；外部检查确认全部标注证据及真实引用可以装入预算后才计入。词项召回使用 `[a-z]+|\d+` 和词频多重集合，完整覆盖按原字符区间计算，重叠及相邻的所选区间先合并。候选负例的构造与正式评测集合不同，不能把本检查数字直接等同于平台指标。
 
 ## 实测结果
 
@@ -31,18 +33,18 @@
 
 | SciFact 检查 | 可行请求 | 平均证据词项召回 | 完整覆盖比例 |
 | --- | ---: | ---: | ---: |
-| 开发集质量检查 | 306 | 0.6563 | 0.4804 |
-| 固定实现后的额外检查：训练集前 200 个单证据文档 claim | 327 | 0.7118 | 0.5535 |
+| 开发集：真实 Memory 路径 | 306 | 0.6917 | 0.5523 |
+| 额外检查：训练集跳过前 200 个单证据文档 claim，再取 200 个；真实 Memory 路径 | 349 | 0.6653 | 0.4642 |
 
-开发集参与过算法选择，不属于未见数据评估。开发集检查在 Windows Python 3.11 环境运行；额外检查在上述官方容器运行。正式评测仅 48 次请求，数据选择差异可能显著改变结果，须以平台实际验收为准。
+两项均在上述官方容器运行。证据文档进入搜索候选的请求比例分别为 0.9575、0.9713。开发集参与过算法选择，不属于未见数据评估；额外检查中的样本未用于本轮算法选择。正式评测仅 48 次请求，额外检查高于 0.65 门槛的余量仍有限，数据选择差异可能显著改变结果，须以平台实际验收为准。
 
 ## 复现
 
 将 SciFact 的三个 JSONL 文件放入 `.pytest_cache/retrieval-quality/scifact/`，FinanceBench 标注放入 `.pytest_cache/retrieval-quality/financebench.jsonl`；额外四份财报放入 `.pytest_cache/retrieval-quality/pdfs/`。PepsiCo 使用仓库随附完整 PDF。
 
 ```powershell
-uv run python scripts/evaluate_evidence_quality.py --data-dir .pytest_cache/retrieval-quality/scifact --output .pytest_cache/retrieval-quality/evidence-dev.json
-uv run python scripts/evaluate_evidence_quality.py --data-dir .pytest_cache/retrieval-quality/scifact --claims claims_train.jsonl --max-claims 200 --output .pytest_cache/retrieval-quality/evidence-train.json
+uv run python scripts/evaluate_evidence_quality.py --native --data-dir .pytest_cache/retrieval-quality/scifact --output .pytest_cache/retrieval-quality/evidence-dev.json
+uv run python scripts/evaluate_evidence_quality.py --native --data-dir .pytest_cache/retrieval-quality/scifact --claims claims_train.jsonl --skip-claims 200 --max-claims 200 --output .pytest_cache/retrieval-quality/evidence-extra.json
 uv run python scripts/evaluate_pdf_quality.py --pdf-dir competition/challenges/source-03-pdf-retrieval/workload/public/pdfs --pdf-dir .pytest_cache/retrieval-quality/pdfs --annotations .pytest_cache/retrieval-quality/financebench.jsonl --output .pytest_cache/retrieval-quality/pdf.json
 uv run python scripts/run_competition_selftests.py --task evidence --task pdf
 ```

@@ -103,12 +103,53 @@ def _terms(text: str) -> list[str]:
     return [word for word in english_terms(text) if word not in excluded]
 
 
+def _abbreviations(text: str) -> list[tuple[str, frozenset[str]]]:
+    """Align an explicit parenthesized abbreviation to its preceding long form."""
+    definitions = []
+    for match in re.finditer(r"\(([A-Z][A-Za-z0-9-]{1,9})\)", text):
+        short = re.sub(r"[^a-z0-9]", "", match[1].casefold())
+        words = list(re.finditer(r"\S+", text[: match.start()]))[-min(len(short) + 5, 2 * len(short)) :]
+        if not words:
+            continue
+        first = words[0].start()
+        long = text[first : match.start()].casefold()
+        cursor = len(long) - 1
+        for index in range(len(short) - 1, -1, -1):
+            while cursor >= 0 and (
+                long[cursor] != short[index] or (index == 0 and cursor and long[cursor - 1].isalnum())
+            ):
+                cursor -= 1
+            if cursor < 0:
+                break
+            cursor -= 1
+        else:
+            terms = frozenset(_terms(long[cursor + 1 :]))
+            if len(terms) >= 2:
+                definitions.append((english_stem(short), terms))
+    return definitions
+
+
+def _concept_terms(text: str, aliases: Sequence[tuple[str, frozenset[str]]]) -> frozenset[str]:
+    terms = set(_terms(text))
+    terms.update(short for short, long in aliases if long <= terms)
+    return frozenset(terms)
+
+
 def _spans(text: str) -> list[tuple[int, int]]:
     spans = []
     start = 0
     for boundary in re.finditer(r"(?<=[.!?。！？])\s+|\n+", text):  # noqa: RUF001 - Include Chinese sentence boundaries.
-        if boundary.start() > start:
-            spans.append((start, boundary.start()))
+        # Scientific prose includes names such as "C. difficile" and "et al.".
+        # Keep those in one sentence rather than treating their periods as stops.
+        preceding = text[start : boundary.start()]
+        if re.search(r"(?:\b[A-Za-z]|\bet al|\be\.g|\bi\.e)\.$", preceding) and re.match(
+            r"[a-z]", text[boundary.end() :]
+        ):
+            continue
+        if boundary.end() > start:
+            # Boundary whitespace is still literal evidence. Dropping it can
+            # make a selected sentence fail exact character-interval coverage.
+            spans.append((start, boundary.end()))
         start = boundary.end()
     if start < len(text):
         spans.append((start, len(text)))
@@ -140,9 +181,19 @@ def select_memory_evidence(
     """Rank candidate sentences and admit exact intervals within the final byte budget."""
     documents = [(group.scope_id, hit) for group in groups for hit in group.hits]
     query_terms = set(_terms(request.query))
+    aliases = list(
+        dict.fromkeys(
+            pair for text in (request.query, *(hit.text for _, hit in documents)) for pair in _abbreviations(text)
+        )
+    )
+    aliases = [(short, long) for short, long in aliases if short in query_terms or long <= query_terms]
+    for short, long in aliases:
+        if long <= query_terms:
+            query_terms.difference_update(long)
+            query_terms.add(short)
     frequency: Counter[str] = Counter()
     for _, hit in documents:
-        frequency.update(set(_terms(hit.text)))
+        frequency.update(_concept_terms(hit.text, aliases))
     weights = _query_weights(request.query, query_terms, frequency, len(documents))
     plans = []
     fallback = []
@@ -150,7 +201,7 @@ def select_memory_evidence(
         address = MemoryEntryAddress(
             ArtifactAddress(scope_id=scope_id, artifact=hit.memory_ref), hit.entry_id, hit.entry_version_id
         )
-        alternatives, sentences = _document_plans(hit.text, address, weights, request.max_bytes)
+        alternatives, sentences = _document_plans(hit.text, address, weights, request.max_bytes, aliases)
         plans.append(alternatives)
         fallback.extend((sentence.score, sentence.fragment) for sentence in sentences if sentence.score > 0)
     selected = _combine_plans(plans, request.max_bytes)
@@ -200,22 +251,48 @@ class _Plan:
     cost: int
 
 
-def _document_plans(
-    text: str, address: MemoryEntryAddress, weights: dict[str, float], max_bytes: int
-) -> tuple[list[_Plan], list[_Sentence]]:
+def _sentence_candidates(
+    text: str,
+    address: MemoryEntryAddress,
+    weights: dict[str, float],
+    aliases: Sequence[tuple[str, frozenset[str]]],
+) -> list[_Sentence]:
+    """Score literal sentences using query concepts and explicit prose sections."""
     total = sum(weights.values()) or 1.0
-    all_terms = set(_terms(text))
-    prior = sum(weight for term, weight in weights.items() if term in all_terms) / total
     sentences = []
+    section = ""
     for index, (start, end) in enumerate(_spans(text)):
         body = text[start:end]
-        terms = frozenset(_terms(body))
+        terms = _concept_terms(body, aliases)
         score = sum(weights.get(term, 0.0) for term in sorted(terms)) / total
+        markers = re.findall(
+            r"\b(BACKGROUND|CONTEXT|OBJECTIVES?|METHODS?|DESIGN|RESULTS?|CONCLUSIONS?|FINDINGS)\b", body
+        )
+        if markers:
+            section = markers[-1]
+        if section.startswith(("RESULT", "CONCLU", "FINDING")):
+            score *= 1.5
+        elif section:
+            score *= 0.8
         if index == 0:
             score *= 0.8
         if re.search(r"\b(results?|conclusions?|found|showed|demonstrated|revealed|observed)\b", body, re.I):
             score *= 1.15
         sentences.append(_Sentence(PreparedMemoryFragment(address, start, end, body), terms, score))
+    return sentences
+
+
+def _document_plans(
+    text: str,
+    address: MemoryEntryAddress,
+    weights: dict[str, float],
+    max_bytes: int,
+    aliases: Sequence[tuple[str, frozenset[str]]] = (),
+) -> tuple[list[_Plan], list[_Sentence]]:
+    total = sum(weights.values()) or 1.0
+    all_terms = _concept_terms(text, aliases)
+    prior = sum(weight for term, weight in weights.items() if term in all_terms) / total
+    sentences = _sentence_candidates(text, address, weights, aliases)
     alternatives = []
     envelope = len(_render(()).encode("utf-8"))
     for start in range(len(sentences)):

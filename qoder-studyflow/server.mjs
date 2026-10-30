@@ -170,8 +170,9 @@ export function createAppServer({
           text: (note.title + "：" + note.content).slice(0, 2500),
           reason: "用户在 StudyFlow 中明确选择收藏为长期记忆"
         });
+        if (!result.entry?.citation) throw fail("PowerContext 未返回有效的 Memory 引用，无法确认写入", 502);
         note.remembered = true;
-        note.memoryCitation = result.citation || null;
+        note.memoryCitation = result.entry.citation;
         persist();
         return json(res, 200, { note, result });
       }

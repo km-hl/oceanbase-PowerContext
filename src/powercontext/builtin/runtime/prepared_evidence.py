@@ -262,11 +262,15 @@ def _sentence_candidates(
         body = text[start:end]
         terms = _concept_terms(body, aliases)
         score = sum(weights.get(term, 0.0) for term in sorted(terms)) / total
-        markers = re.findall(
-            r"\b(BACKGROUND|CONTEXT|OBJECTIVES?|METHODS?|DESIGN|RESULTS?|CONCLUSIONS?|FINDINGS)\b", body, re.I
+        # Treat explicit leading headings as section labels; an ordinary
+        # phrase such as "the results show" must not relabel later sentences.
+        heading = re.match(
+            r"\s*(BACKGROUND|CONTEXT|OBJECTIVES?|METHODS?|DESIGN|RESULTS?|CONCLUSIONS?|FINDINGS)\b",
+            body,
+            re.I,
         )
-        if markers:
-            section = markers[-1].upper()
+        if heading:
+            section = heading[1].upper()
         if section.startswith(("RESULT", "CONCLU", "FINDING")):
             score *= 1.5
         elif section:

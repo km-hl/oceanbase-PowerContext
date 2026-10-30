@@ -8,10 +8,10 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| [SKILL.md](../../SKILL.md) | 根目录的 Skill 说明，便于赛题评测及直接阅读 |
-| [Agent Skill](../../.agents/skills/amap-nearby/SKILL.md) | Agent 可发现的 Skill 入口 |
-| [scripts/amap_nearby.py](../../scripts/amap_nearby.py) | 标准库 Python 实现（地点检索、地理编码、路线规划、导航） |
-| [tests/test_amap_nearby.py](../../tests/test_amap_nearby.py) | 零外部 Key 的离线单元测试 |
+| [SKILL.md](../SKILL.md) | 根目录的 Skill 说明，便于赛题评测及直接阅读 |
+| [Agent Skill](../.agents/skills/amap-nearby/SKILL.md) | Agent 可发现的 Skill 入口 |
+| [scripts/amap_nearby.py](../scripts/amap_nearby.py) | 标准库 Python 实现（地点检索、地理编码、路线规划、导航） |
+| [tests/test_amap_nearby.py](../tests/test_amap_nearby.py) | 零外部 Key 的离线单元测试 |
 
 ## 使用
 

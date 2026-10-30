@@ -22,9 +22,11 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from itertools import chain, combinations
 
 from powercontext._lexical import english_stem, english_terms
 from powercontext.artifacts import ArtifactAddress
+from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.runtime.models import PrepareContextRequest, PreparedContext
 from powercontext.builtin.runtime.prepared_context import (
     MemoryEntryAddress,
@@ -100,7 +102,7 @@ _STOP = frozenset([
 
 def _terms(text: str) -> list[str]:
     excluded = {english_stem(word) for word in _STOP}
-    return [word for word in english_terms(text) if word not in excluded]
+    return [word for term in analyze_text(text).split() if (word := english_stem(term)) not in excluded]
 
 
 def _abbreviations(text: str) -> list[tuple[str, frozenset[str]]]:
@@ -196,18 +198,12 @@ def select_memory_evidence(
         frequency.update(_concept_terms(hit.text, aliases))
     weights = _query_weights(request.query, query_terms, frequency, len(documents))
     plans = []
-    fallback = []
     for scope_id, hit in documents:
         address = MemoryEntryAddress(
             ArtifactAddress(scope_id=scope_id, artifact=hit.memory_ref), hit.entry_id, hit.entry_version_id
         )
-        alternatives, sentences = _document_plans(hit.text, address, weights, request.max_bytes, aliases)
-        plans.append(alternatives)
-        fallback.extend((sentence.score, sentence.fragment) for sentence in sentences if sentence.score > 0)
+        plans.append(_document_plans(hit.text, address, weights, request.max_bytes, aliases))
     selected = _combine_plans(plans, request.max_bytes)
-    if not selected:
-        fallback.sort(key=lambda item: -item[0])
-        selected = _fit_long_sentence(fallback, query_terms, request.max_bytes)
     if not selected:
         return PreparedContextBuild(PreparedContext(status="empty", content=None, content_bytes=0), ())
     content = _render(selected)
@@ -231,7 +227,9 @@ def _query_weights(query: str, terms: set[str], frequency: Counter[str], documen
         )
     )
     return {
-        term: math.log(1 + (document_count + 1) / (frequency[term] + 1))
+        # A term shared by every candidate carries less distinguishing evidence
+        # than a term confined to one candidate.
+        term: math.log(1 + (document_count - frequency[term] + 0.5) / (frequency[term] + 0.5))
         * (2.5 if term in entities else 0.5 if term in operators else 1.0)
         for term in sorted(terms)
     }
@@ -288,7 +286,7 @@ def _document_plans(
     weights: dict[str, float],
     max_bytes: int,
     aliases: Sequence[tuple[str, frozenset[str]]] = (),
-) -> tuple[list[_Plan], list[_Sentence]]:
+) -> list[_Plan]:
     total = sum(weights.values()) or 1.0
     all_terms = _concept_terms(text, aliases)
     prior = sum(weight for term, weight in weights.items() if term in all_terms) / total
@@ -306,13 +304,14 @@ def _document_plans(
             if score > 0:
                 alternatives.append(_Plan((fragment,), score, cost - envelope))
     alternatives.extend(_sparse_plans(sentences, text, prior, weights, max_bytes))
+    alternatives.extend(_window_plans(sentences, prior, weights, max_bytes, aliases))
     frontier = []
     best_score = -1.0
     for plan in sorted(alternatives, key=lambda item: (item.cost, -item.score)):
         if plan.score > best_score:
             frontier.append(plan)
             best_score = plan.score
-    return frontier, sentences
+    return frontier
 
 
 def _sparse_plans(
@@ -322,13 +321,15 @@ def _sparse_plans(
     relevant = sorted((sentence for sentence in sentences if sentence.score > 0), key=lambda item: -item.score)
     alternatives = []
     envelope = len(_render(()).encode("utf-8"))
-    for count in range(2, min(5, len(relevant)) + 1):
+    pairs = combinations(relevant, 2)
+    larger = (relevant[:count] for count in range(3, min(5, len(relevant)) + 1))
+    for group in chain(pairs, larger):
         included: list[PreparedMemoryFragment] = []
-        for sentence in sorted(relevant[:count], key=lambda item: item.fragment.start):
+        for sentence in sorted(group, key=lambda item: item.fragment.start):
             included = _merge(included, sentence.fragment, text)
         cost = len(_render(included).encode("utf-8"))
         if cost <= max_bytes:
-            score = _plan_score(relevant[:count], prior, weights, sum(len(fragment.text) for fragment in included))
+            score = _plan_score(group, prior, weights, sum(len(fragment.text) for fragment in included))
             alternatives.append(_Plan(tuple(included), score, cost - envelope))
     return alternatives
 
@@ -362,27 +363,80 @@ def _plan_score(sentences: Sequence[_Sentence], prior: float, weights: dict[str,
         return 0.0
     common = set().union(*(sentence.terms for sentence in sentences))
     coverage = sum(weight for term, weight in weights.items() if term in common) / (sum(weights.values()) or 1.0)
-    return prior**2 * (scores[0] + 0.5 * sum(scores[1:4]) + 0.0003 * length) + 0.15 * coverage
+    # Coverage cannot independently reward a document with weak overall relevance.
+    return prior**2 * (scores[0] + 0.5 * sum(scores[1:4]) + 0.0003 * length + 0.15 * coverage)
 
 
-def _fit_long_sentence(
-    ranked: list[tuple[float, PreparedMemoryFragment]], query_terms: set[str], max_bytes: int
-) -> list[PreparedMemoryFragment]:
-    """Choose a fitting literal word window when no complete sentence fits."""
-    for _, fragment in ranked:
-        words = list(re.finditer(r"\S+", fragment.text))
-        anchors = [index for index, word in enumerate(words) if set(_terms(word.group())) & query_terms]
-        for width in (64, 40, 24, 12, 4, 1):
-            for anchor in anchors:
-                first = max(0, anchor - width // 3)
-                last = min(len(words), first + width)
-                start, end = fragment.start + words[first].start(), fragment.start + words[last - 1].end()
-                candidate = replace(
-                    fragment, start=start, end=end, text=fragment.text[start - fragment.start : end - fragment.start]
+def _window_plans(
+    sentences: Sequence[_Sentence],
+    prior: float,
+    weights: dict[str, float],
+    max_bytes: int,
+    aliases: Sequence[tuple[str, frozenset[str]]],
+) -> list[_Plan]:
+    """Let relevant oversized sentences compete with complete-sentence plans."""
+    anchors = set(weights)
+    anchors.update(term for short, long in aliases if short in weights for term in long)
+    envelope = len(_render(()).encode("utf-8"))
+    plans = []
+    for sentence in sentences:
+        if sentence.score <= 0 or len(_render((sentence.fragment,)).encode("utf-8")) <= max_bytes:
+            continue
+        full_weight = sum(weights.get(term, 0.0) for term in sentence.terms)
+        for fragment in _bounded_windows(sentence.fragment, anchors, max_bytes):
+            terms = _concept_terms(fragment.text, aliases)
+            score = sentence.score * sum(weights.get(term, 0.0) for term in terms) / (full_weight or 1.0)
+            candidate = _Sentence(fragment, terms, score)
+            if score > 0:
+                plans.append(
+                    _Plan(
+                        (fragment,),
+                        _plan_score((candidate,), prior, weights, len(fragment.text)),
+                        len(_render((fragment,)).encode("utf-8")) - envelope,
+                    )
                 )
-                if len(_render((candidate,)).encode("utf-8")) <= max_bytes:
-                    return [candidate]
-    return []
+    return plans
+
+
+def _bounded_windows(
+    fragment: PreparedMemoryFragment,
+    query_terms: set[str],
+    max_bytes: int,
+) -> list[PreparedMemoryFragment]:
+    """Fit literal character windows around matching original-text positions."""
+    empty = replace(fragment, text="", end=fragment.start)
+    room = max_bytes - len(_render((empty,)).encode("utf-8"))
+    if room <= 0:
+        return []
+    positions = []
+    for word in re.finditer(r"\S+", fragment.text):
+        if set(_terms(word.group())) & query_terms:
+            positions.append(word.start())
+        # CJK prose need not contain spaces. Character positions remain in the
+        # original string; Analyzer offsets after case folding are not reused.
+        positions.extend(
+            word.start() + index
+            for index, character in enumerate(word.group())
+            if not character.isascii() and set(_terms(character)) & query_terms
+        )
+    windows = {}
+    for anchor in positions:
+        left = fragment.text[:anchor].encode("utf-8")[-max(1, room // 3) :].decode("utf-8", errors="ignore")
+        start = anchor - len(left)
+        low, high = anchor + 1, min(len(fragment.text), start + room)
+        best = None
+        while low <= high:
+            end = (low + high) // 2
+            candidate = replace(
+                fragment, start=fragment.start + start, end=fragment.start + end, text=fragment.text[start:end]
+            )
+            if len(_render((candidate,)).encode("utf-8")) <= max_bytes:
+                best, low = candidate, end + 1
+            else:
+                high = end - 1
+        if best is not None:
+            windows[best.start, best.end] = best
+    return list(windows.values())
 
 
 def _merge(

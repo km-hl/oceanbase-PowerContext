@@ -17,18 +17,23 @@
 import asyncio
 import json
 
-from powercontext.artifacts import ArtifactRef
+import pytest
+
+from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.memory import MemoryEntryInput, MemoryHit
 from powercontext.builtin.runtime import (
     BuiltinConfig,
+    CaptureSource,
     GetMemoryEntryRequest,
     PrepareContextRequest,
+    SearchMemoryRequest,
     SubmitSourceObservation,
     open_builtin_runtime,
 )
 from powercontext.builtin.runtime.prepared_context import PreparedContextBuilder, PreparedMemoryCandidates
 from powercontext.builtin.runtime.prepared_text import TRUST_POLICY
 from powercontext.builtin.scope import ScopeDraft
+from powercontext.builtin.sources import ContentSource
 from powercontext.sources import SourceDefinitionRegistry, manifest_for_definition, project_source_for_transport
 from powercontext.sources.pdf_pages import PDF_PAGE_SOURCE_DEFINITION, PDFPageInput, search_pdf_pages
 from powercontext.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY
@@ -122,6 +127,69 @@ def test_evidence_matches_explicit_abbreviation_without_counting_its_expansion_t
         fragment.text == texts[int(fragment.address.entry_id)][fragment.start : fragment.end]
         for fragment in result.fragments
     )
+
+
+class _LiteralDocuments:
+    async def extract(self, request, /):
+        return tuple(
+            MemoryEntryInput(kind="document", text=source.content, sources=(source,))
+            for source in request.sources
+            if isinstance(source, ContentSource)
+        )
+
+
+@pytest.mark.parametrize(
+    ("query", "documents", "evidence"),
+    [
+        ("蓝色阀门开启温度", ("项目旧资料。" * 70 + "蓝色阀门在温度三十七度时开启。",), "三十七度"),
+        ("蓝色阀门开启温度", ("无关记录" * 250 + "蓝色阀门在温度三十七度时开启" + "无关记录" * 250,), "三十七度"),
+        (
+            "cobalt sensor calibrated",
+            (
+                "Sensor calibrated maintenance records.",
+                "unrelated " * 350 + "cobalt sensor calibrated at 37 degrees " + "unrelated " * 350,
+            ),
+            "cobalt sensor calibrated at 37 degrees",
+        ),
+    ],
+)
+def test_evidence_handles_cjk_and_oversized_sentences_with_native_citations(query, documents, evidence):
+    async def scenario():
+        async with open_builtin_runtime(BuiltinConfig(), candidate_pipeline=_LiteralDocuments()) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Evidence", summary="Literal input", idempotency_key="literal")
+            )
+            sources = runtime.sources.for_scope(scope.scope_id)
+            memory = runtime.memory.for_scope(scope.scope_id)
+            for index, text in enumerate(documents):
+                await sources.capture(CaptureSource(source_id=f"document-{index}", content=text, metadata={}))
+            while (await memory.flush()).processed:
+                pass
+            page = await memory.search(SearchMemoryRequest(query=query, mode="fts", limit=16))
+            assert len(page.hits) == len(documents)
+            result = PreparedContextBuilder().build_scopes_result(
+                request=PrepareContextRequest(query=query, max_bytes=1200, evidence_selection=True),
+                current_scope_id=scope.scope_id,
+                memory_candidates=(
+                    PreparedMemoryCandidates(scope_id=scope.scope_id, memory_ref=page.memory_ref, hits=page.hits),
+                ),
+            )
+            assert result.context.content_bytes == len((result.context.content or "").encode("utf-8")) <= 1200
+            assert any(evidence in fragment.text for fragment in result.fragments)
+            for fragment, origin in zip(result.fragments, result.origins, strict=True):
+                citation = MemoryCitation(
+                    memory_ref=fragment.address.memory.artifact,
+                    entry_id=fragment.address.entry_id,
+                    entry_version_id=fragment.address.entry_version_id,
+                )
+                entry = (await memory.get(GetMemoryEntryRequest(citation=citation))).entry
+                assert entry.text in tuple(text.strip() for text in documents)
+                assert fragment.text == entry.text[fragment.start : fragment.end]
+                assert fragment.address.memory.scope_id == scope.scope_id
+                assert origin == fragment.address
+
+    asyncio.run(scenario())
 
 
 class _LiteralPages:

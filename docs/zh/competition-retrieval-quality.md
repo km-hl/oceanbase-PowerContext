@@ -33,10 +33,12 @@
 
 | SciFact 检查 | 可行请求 | 平均证据词项召回 | 完整覆盖比例 |
 | --- | ---: | ---: | ---: |
-| 开发集：真实 Memory 路径 | 306 | 0.6917 | 0.5523 |
-| 额外检查：训练集跳过前 200 个单证据文档 claim，再取 200 个；真实 Memory 路径 | 349 | 0.6653 | 0.4642 |
+| 开发集：真实 Memory 路径 | 306 | 0.7027 | 0.6046 |
+| 额外检查：训练集跳过前 400 个单证据文档 claim，检查剩余 68 个；真实 Memory 路径 | 120 | 0.7787 | 0.7000 |
 
-两项均在上述官方容器运行。证据文档进入搜索候选的请求比例分别为 0.9575、0.9713。开发集参与过算法选择，不属于未见数据评估；额外检查中的样本未用于本轮算法选择。正式评测仅 48 次请求，额外检查高于 0.65 门槛的余量仍有限，数据选择差异可能显著改变结果，须以平台实际验收为准。
+两项均在上述官方容器运行。证据文档进入搜索候选的请求比例分别为 0.9575、0.9667。开发集参与过算法选择，不属于未见数据评估；额外检查中的样本未用于本轮算法选择。正式评测仅 48 次请求，数据选择差异可能显著改变结果，须以平台实际验收为准。这里的质量数字不能定位平台未公开的失败项。
+
+本地回归通过真实 Runtime 采集、搜索并回查中文及英文原文，覆盖纯中文问题、中文无空白超长句，以及存在较弱短句候选时仍从相关超长句选择窗口；同时核对完整 UTF-8 预算、原字符区间、scope 和 origins。
 
 ## 复现
 
@@ -44,7 +46,7 @@
 
 ```powershell
 uv run python scripts/evaluate_evidence_quality.py --native --data-dir .pytest_cache/retrieval-quality/scifact --output .pytest_cache/retrieval-quality/evidence-dev.json
-uv run python scripts/evaluate_evidence_quality.py --native --data-dir .pytest_cache/retrieval-quality/scifact --claims claims_train.jsonl --skip-claims 200 --max-claims 200 --output .pytest_cache/retrieval-quality/evidence-extra.json
+uv run python scripts/evaluate_evidence_quality.py --native --data-dir .pytest_cache/retrieval-quality/scifact --claims claims_train.jsonl --skip-claims 400 --output .pytest_cache/retrieval-quality/evidence-extra.json
 uv run python scripts/evaluate_pdf_quality.py --pdf-dir competition/challenges/source-03-pdf-retrieval/workload/public/pdfs --pdf-dir .pytest_cache/retrieval-quality/pdfs --annotations .pytest_cache/retrieval-quality/financebench.jsonl --output .pytest_cache/retrieval-quality/pdf.json
 uv run python scripts/run_competition_selftests.py --task evidence --task pdf
 ```

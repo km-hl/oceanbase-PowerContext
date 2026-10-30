@@ -1,0 +1,27 @@
+name: StudyFlow checks
+on:
+  push:
+    branches:
+      - qoder
+    paths:
+      - "qoder-studyflow/**"
+      - ".github/workflows/qoder-studyflow.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check syntax
+        run: |
+          node --check qoder-studyflow/server.mjs
+          node --check qoder-studyflow/public/app.js
+          node --check qoder-studyflow/test/server.test.mjs
+      - name: Run StudyFlow integration tests (mock PowerContext)
+        run: node --test qoder-studyflow/test/server.test.mjs

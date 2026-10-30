@@ -1,0 +1,29 @@
+{
+  "id": "sdd-selftest",
+  "command": [
+    "python",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests/builtin",
+    "-p",
+    "test_sdd_context.py",
+    "-v"
+  ],
+  "recorded_at": "2026-10-30T13:56:10.986796+00:00",
+  "passed": true,
+  "exit_code": 0,
+  "file_digests": {
+    "src/powercontext/builtin/sdd/engine.py": "65c8dde1fa7752517cbbb90ddefa299710c4806b5133b5dfef070bcfe21ddf89",
+    "src/powercontext/builtin/sdd/__init__.py": "631da8a1623d7e3dc370730015f86243db11579f7d6de4e16d5046ce2b2d28d1",
+    "src/powercontext/builtin/sdd/__main__.py": "cee5549bc3806c35eb868b4bfcccf71468acc873124139d243bb365c70712e89",
+    "tests/builtin/test_sdd_context.py": "ac83db68a0e12fe5aaab28b305ded7ef3f363f83f7492f0c227d7b481cca1d21"
+  },
+  "spec_revisions": {
+    "sdd-engineering-context": 1
+  },
+  "spec_digests": {
+    "sdd-engineering-context": "ed3f4b7ebffe4b168e85b18a3332ef1f0b1cf8e0327212ddcaa1d7f078288650"
+  }
+}

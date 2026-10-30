@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0d1328">
+  <title>StudyFlow · 研习台</title>
+  <meta name="description" content="用 PowerContext 串联学习任务、研究笔记和可跨会话召回的长期知识">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">✦</span><span><strong>StudyFlow</strong><small>POWERED BY POWERCONTEXT</small></span></div>
+      <div class="menu-label">WORKSPACE</div>
+      <nav aria-label="主导航">
+        <button class="nav-item active" data-page="overview"><span>◫</span> 总览</button>
+        <button class="nav-item" data-page="tasks"><span>▣</span> 学习计划</button>
+        <button class="nav-item" data-page="notes"><span>▤</span> 知识笔记</button>
+        <button class="nav-item" data-page="recall"><span>✧</span> 智能记忆</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-help"><strong>让知识真正沉淀</strong><p>将重要结论存入长期记忆，在下一次研究中重新找到它。</p></div>
+        <div id="connection" class="connection"><span class="dot"></span> 检测 PowerContext...</div>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div><div class="eyebrow">PERSONAL RESEARCH OS <span class="slash">/</span> 2026</div><h1 id="pageTitle">学习与研究，尽在掌握</h1></div>
+        <div class="top-actions"><span class="today" id="today"></span><div class="avatar">研</div></div>
+      </header>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <section id="overview" class="page active">
+        <div class="hero">
+          <div><span class="hero-kicker">✳ YOUR LEARNING COMMAND CENTER</span><h2>把零散的努力，<br><em>变成持续的进步。</em></h2><p>规划任务、积累研究笔记，用 PowerContext 让每一次学习都有迹可循。</p><button class="button button-white" id="heroNew">＋ 记录新想法</button></div>
+          <div class="orbit" aria-hidden="true"><div class="orbit-ring orbit-one"></div><div class="orbit-ring orbit-two"></div><div class="orbit-center">✦</div><span class="orbit-star">✧</span></div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><span>总任务</span><strong id="totalTasks">0</strong><small>让每一步都清晰可见</small></div>
+          <div class="metric"><span>已完成</span><strong id="doneTasks">0</strong><small>脚踏实地的成长</small></div>
+          <div class="metric"><span>知识笔记</span><strong id="totalNotes">0</strong><small>沉淀自己的知识库</small></div>
+          <div class="metric"><span>完成率</span><strong id="completion">0%</strong><div class="meter"><div id="completionBar"></div></div></div>
+        </div>
+        <div class="two-col">
+          <section class="panel"><div class="panel-head"><div><span class="tiny-label">UP NEXT</span><h3>近期学习任务</h3></div><button class="text-link" data-goto="tasks">查看全部 →</button></div><div id="nextTasks"></div></section>
+          <section class="panel"><div class="panel-head"><div><span class="tiny-label">KNOWLEDGE STREAM</span><h3>最近的研究笔记</h3></div><button class="text-link" data-goto="notes">查看全部 →</button></div><div id="recentNotes"></div></section>
+        </div>
+      </section>
+      <section id="tasks" class="page">
+        <div class="section-intro"><div><span class="tiny-label">PLAN WITH CLARITY</span><h2>学习计划</h2><p>任务拆解、优先级管理、完成进度一目了然。</p></div></div>
+        <form id="taskForm" class="panel form-bar">
+          <label><span>任务名称</span><input name="title" maxlength="160" placeholder="例如：精读 HNSW 索引论文" required></label>
+          <label><span>所属项目</span><input name="project" maxlength="80" placeholder="例如：向量检索"></label>
+          <label><span>截止日期</span><input name="due" type="date"></label>
+          <label><span>优先级</span><select name="priority"><option value="medium">普通</option><option value="high">重要</option><option value="low">低</option></select></label>
+          <button class="button button-primary" type="submit">＋ 添加任务</button>
+        </form>
+        <div class="panel"><div class="panel-head"><h3>任务清单</h3><select id="taskFilter" class="select-small" aria-label="筛选任务"><option value="all">全部任务</option><option value="open">未完成</option><option value="done">已完成</option></select></div><div id="taskList"></div></div>
+      </section>
+      <section id="notes" class="page">
+        <div class="section-intro"><div><span class="tiny-label">CAPTURE & CONNECT</span><h2>知识笔记</h2><p>记录研究过程与关键结论，重要知识可以一键存入 PowerContext。</p></div></div>
+        <form id="noteForm" class="panel note-form">
+          <div class="input-row"><label><span>笔记标题</span><input name="title" maxlength="160" placeholder="例如：HNSW 建图关键参数" required></label><label><span>所属项目</span><input name="project" maxlength="80" placeholder="例如：数据库研究"></label></div>
+          <label><span>知识内容</span><textarea name="content" rows="5" maxlength="7500" placeholder="写下研究结论、实验观察、待解决问题或参考资料摘要…" required></textarea></label>
+          <div class="form-bottom"><small>保存后自动尝试写入 PowerContext Source；点击“存为记忆”才会写入长期 Memory。</small><button class="button button-primary" type="submit">＋ 保存笔记</button></div>
+        </form>
+        <div class="panel"><div class="panel-head"><h3>我的笔记库</h3><input id="noteFilter" class="search-inline" aria-label="搜索本地笔记" placeholder="筛选标题或正文..."></div><div id="noteList"></div></div>
+      </section>
+      <section id="recall" class="page">
+        <div class="section-intro"><div><span class="tiny-label">POWERCONTEXT INTELLIGENCE</span><h2>智能记忆</h2><p>找回过去的决定、实验经验和已有结论，让新的学习建立在旧知识上。</p></div></div>
+        <div class="recall-grid">
+          <section class="panel recall-panel"><div class="recall-icon">⌕</div><h3>语义相关记忆检索</h3><p>从 PowerContext Memory 中检索相关的长期知识。</p><form id="searchForm"><label class="sr-only" for="searchInput">搜索知识</label><input id="searchInput" maxlength="200" placeholder="例如：索引构建实验..." required><button class="button button-primary" type="submit">检索记忆 →</button></form><div id="searchOutput" class="result"><p>在上方输入关键词，查找你曾经保存的知识。</p></div></section>
+          <section class="panel recall-panel"><div class="recall-icon purple">◎</div><h3>为下次学习准备上下文</h3><p>通过 Context Prepare 生成有引用约束的历史上下文，适合交给下一次 AI 对话。</p><form id="contextForm"><label class="sr-only" for="contextInput">学习问题</label><input id="contextInput" maxlength="200" placeholder="例如：继续优化 HNSW 论文复现..." required><button class="button button-dark" type="submit">生成上下文 →</button></form><div id="contextOutput" class="result"><p>输入当前任务，快速接续之前的研究。</p></div><button id="copyContext" class="text-link copy-hidden" type="button">复制上下文</button></section>
+        </div>
+        <p class="privacy-line">🔒 PowerContext token 仅由服务端读取。历史上下文只作为参考，不能替代当前需求或实时验证。</p>
+      </section>
+      <footer>STUDYFLOW / BUILT FOR THE OCEANBASE LEARNING CHALLENGE <span>·</span> WITH POWERCONTEXT</footer>
+    </main>
+  </div>
+</body>
+</html>

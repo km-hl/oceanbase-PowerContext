@@ -222,14 +222,18 @@ class SDDContext:
             identifier = _id(raw.get("id"))
             checks = raw.get("file_digests")
             revisions = raw.get("spec_revisions")
-            if not isinstance(checks, dict) or not isinstance(revisions, dict):
+            spec_digests = raw.get("spec_digests")
+            if not isinstance(checks, dict) or not isinstance(revisions, dict) or not isinstance(spec_digests, dict):
                 raise SDDError("invalid verification manifest")
             if not (set(revisions) & set(current) or set(checks) & selected_paths):
                 continue
             reasons: list[str] = []
+            active_specs = {spec.id: spec for spec in active}
             for sid, version in revisions.items():
                 _id(sid)
-                if current.get(sid) != version:
+                current_spec = active_specs.get(sid)
+                if (current.get(sid) != version or current_spec is None or
+                    spec_digests.get(sid) != _digest(self.root / current_spec.source)):
                     reasons.append(f"spec_changed:{sid}")
             for rel, expected in checks.items():
                 safe = _safe_file(self.root, rel)
@@ -304,11 +308,14 @@ class SDDContext:
         active, _ = self.effective()
         versions = {spec.id: spec.revision for spec in active}
         spec_revisions = {}
+        spec_digests = {}
+        active_specs = {spec.id: spec for spec in active}
         for sid in specs:
             _id(sid)
             if sid not in versions:
                 raise SDDError(f"spec is not active: {sid}")
             spec_revisions[sid] = versions[sid]
+            spec_digests[sid] = _digest(self.root / active_specs[sid].source)
         try:
             completed = subprocess.run(command, cwd=self.root, capture_output=True, text=True,
                                        timeout=timeout, check=False)  # noqa: S603 - explicit user-provided argv
@@ -323,7 +330,7 @@ class SDDContext:
         record = {
             "id": identifier, "command": command, "recorded_at": datetime.now(UTC).isoformat(),
             "passed": passed, "exit_code": exit_code, "file_digests": file_digests,
-            "spec_revisions": spec_revisions,
+            "spec_revisions": spec_revisions, "spec_digests": spec_digests,
         }
         directory = self.root / ".sdd" / "verifications"
         if directory.is_symlink():

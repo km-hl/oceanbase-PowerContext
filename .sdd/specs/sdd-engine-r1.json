@@ -1,0 +1,22 @@
+{
+  "id": "sdd-engineering-context",
+  "revision": 1,
+  "status": "active",
+  "title": "Version-aware SDD context for coding agents",
+  "paths": ["src/powercontext/builtin/sdd/*.py"],
+  "tests": ["tests/builtin/test_sdd_context.py"],
+  "requirements": [
+    "Only the latest active specification revision may govern a coding task",
+    "Superseded and retired decisions must not be injected as current rules",
+    "Return traceable current code and tests with SHA-256 and line excerpts",
+    "Invalidate earlier verification when any declared source/test bytes or the specification content changes",
+    "A test may become valid again only after executing a successful check against the current inputs",
+    "Enforce path safety and an explicit output byte budget"
+  ],
+  "decisions": [
+    "Use repository-local JSON specifications instead of silently extracting policy from chat history",
+    "Run tests only on explicit user/agent command, using argv without a shell",
+    "Keep SDD source evidence independent of PowerContext Memory and Handoff persistence"
+  ],
+  "supersedes": []
+}

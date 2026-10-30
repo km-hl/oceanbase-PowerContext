@@ -17,8 +17,8 @@ const fakePowerContext = http.createServer(async (req, res) => {
   if (req.url === "/health/live") result = { status: "ok" };
   else if (req.url === "/v1/scopes") result = { scope_id: "scope:test-studyflow" };
   else if (req.url === "/v1/sources/content") result = { source: { id: body.source_id } };
-  else if (req.url === "/v1/memory/remember") result = { citation: "memory:42@1" };
-  else if (req.url === "/v1/memory/search") result = { entries: [{ text: "Remembered HNSW M=16", citation: "memory:42@1" }] };
+  else if (req.url === "/v1/memory/remember") result = { entry: { citation: { entry_id: "memory-42", entry_version_id: "rev-1" } } };
+  else if (req.url === "/v1/memory/search") result = { hits: [{ text: "Remembered HNSW M=16", citation: { entry_id: "memory-42", entry_version_id: "rev-1" }, matched_by: ["fts"] }] };
   else if (req.url === "/v1/context/prepare") result = { status: "ready", content: "Context: HNSW M=16" };
   else { res.writeHead(404); return res.end("{}"); }
   res.writeHead(200, { "Content-Type": "application/json" });
@@ -82,14 +82,14 @@ test("source, authorized memory, search and prepared context work end-to-end wit
   const saved = await request("/api/notes/remember", "POST", { id: created.data.id });
   assert.equal(saved.status, 200);
   assert.equal(saved.data.note.remembered, true);
-  assert.equal(saved.data.note.memoryCitation, "memory:42@1");
+  assert.deepEqual(saved.data.note.memoryCitation, { entry_id: "memory-42", entry_version_id: "rev-1" });
   const rememberedBefore = calls.filter(call => call.path === "/v1/memory/remember").length;
   const again = await request("/api/notes/remember", "POST", { id: created.data.id });
   assert.equal(again.data.alreadyRemembered, true);
   assert.equal(calls.filter(call => call.path === "/v1/memory/remember").length, rememberedBefore);
 
   const search = await request("/api/search", "POST", { query: "HNSW" });
-  assert.equal(search.data.entries[0].text, "Remembered HNSW M=16");
+  assert.equal(search.data.hits[0].text, "Remembered HNSW M=16");
   const prepared = await request("/api/context", "POST", { query: "HNSW" });
   assert.equal(prepared.data.status, "ready");
   assert.match(prepared.data.content, /HNSW/);

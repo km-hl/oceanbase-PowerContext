@@ -12,6 +12,7 @@ from powercontext.sources.pdf_pages import (
     search_pdf_pages,
 )
 from powercontext.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY
+
 from selftest_support.source_acceptance import persist
 
 

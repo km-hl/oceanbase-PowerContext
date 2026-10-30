@@ -9,6 +9,7 @@ from powercontext.builtin.runtime import SubmitSourceObservation, open_builtin_r
 from powercontext.errors import SourceConflictError
 from powercontext.sources import SourceDefinitionRegistry, project_source_for_transport
 from powercontext.sources.pi_session import PI_EVENT_SOURCE_DEFINITION, PiSessionInput, parse_pi_session
+
 from selftest_support.source_acceptance import persist, search_sources
 
 checks = importlib.import_module("challenges.source-02-pi-history.acceptance.checks")

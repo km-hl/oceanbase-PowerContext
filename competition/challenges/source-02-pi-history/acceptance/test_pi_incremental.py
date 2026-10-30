@@ -3,6 +3,7 @@ import json
 import pytest
 from powercontext.sources import ConnectorBinding
 from powercontext.sources.pi_session import PI_EVENT_SOURCE_DEFINITION, PiSessionConnector
+
 from selftest_support.runtime_fixture import run_connector_persisted
 
 

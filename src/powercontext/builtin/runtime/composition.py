@@ -140,7 +140,11 @@ from powercontext.builtin.runtime.decision_model import (
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
 from powercontext.builtin.runtime.memory_write_gate import build_memory_write_gate
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
-from powercontext.builtin.runtime.processing_discovery import SourceProcessingPendingProvider, enabled_profile_scopes
+from powercontext.builtin.runtime.processing_discovery import (
+    SourceCountScopeFilter,
+    SourceProcessingPendingProvider,
+    enabled_profile_scopes,
+)
 from powercontext.builtin.runtime.processing_registry import (
     canonical_processing_manifest,
     dream_operations,
@@ -653,6 +657,9 @@ async def open_builtin_runtime(
                 remote_ingestion=contexts,
             )
         )
+        from powercontext.builtin.runtime.source_lifecycle import SourceLifecycleApplication
+
+        runtime.lifecycle = SourceLifecycleApplication(runtime, contexts)
         runtime.artifact_processing_supervisor = await resources.enter_async_context(
             _open_artifact_processing_supervisor(config, contexts, processing_bindings, tracing=tracing)
         )
@@ -787,6 +794,11 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                 if family == "skill"
                 else SourceProcessingPendingProvider(contexts.database, binding, family),
                 automatic_scope_filter=enabled_profile_scopes if family == "profile" else None,
+                source_count_scope_filter=(
+                    SourceCountScopeFilter(binding, threshold)
+                    if (threshold := getattr(config.runtime, f"{prefix}_source_count_threshold", None)) is not None
+                    else None
+                ),
             )
         )
     _validate_processing_registrations(configured)
@@ -963,7 +975,9 @@ async def open_builtin_contexts(
     indexes = [OceanBaseMemoryFTSIndex()]
     if embedding_model is not None:
         indexes.append(OceanBaseMemoryVectorIndex(embedding_model.profile))
-    index = CompositeMemoryIndex(*indexes)
+    from powercontext.builtin.persistence.seekdb.memory_index import SeekDBMemoryIndex
+
+    index = {"seekdb": SeekDBMemoryIndex, "oceanbase": CompositeMemoryIndex}[database.kind](*indexes)
     topic_indexes: list[TopicMemoryIndex] = [OceanBaseTopicMemoryFTSIndex()]
     if embedding_model is not None:
         topic_indexes.append(OceanBaseTopicMemoryVectorIndex(embedding_model.profile))

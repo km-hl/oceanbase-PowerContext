@@ -1,5 +1,7 @@
 docs/source
 
+question.md
+
 # Agent skills are restored from skills-lock.json.
 .agents/skills/
 

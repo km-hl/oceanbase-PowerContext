@@ -117,6 +117,7 @@ class ArtifactProcessingBinding:
     # Only automatic admission is filtered; already accepted requests retain
     # their own Worker authorization and domain completion semantics.
     automatic_scope_filter: Callable[[AsyncConnection, tuple[str, ...]], Awaitable[frozenset[str]]] | None = None
+    source_count_scope_filter: Callable[[AsyncConnection, tuple[str, ...]], Awaitable[frozenset[str]]] | None = None
 
     def __post_init__(self) -> None:
         if not self.binding_name or self.binding_name != self.binding_name.strip():
@@ -392,6 +393,8 @@ class _FamilyState:
     running: dict[str, _RunningWorker] = field(default_factory=dict)
     retries: dict[str, _RetryState] = field(default_factory=dict)
     requested_after: int = 0
+    count_after: int = 0
+    next_count_at: float = 0.0
     scan_after: int = 0
     scan_generation: int = 0
     scan_in_progress: bool = False
@@ -520,7 +523,9 @@ class ArtifactProcessingSupervisor:
         self._stop.set()
         self._wake.set()
         if self._task is not None:
-            self._task.cancel()
+            # Finish the current bounded admission transaction before revoking the
+            # term. Cancelling aiosqlite mid-statement can detach a connection
+            # which still holds a native write lock after engine disposal.
             with suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
@@ -633,6 +638,8 @@ class ArtifactProcessingSupervisor:
                     self._log_failure(state, None, error, "scope_discovery")
                 finally:
                     state.discovery_seconds = asyncio.get_running_loop().time() - now
+            if self._stop.is_set():
+                return
             await self._activate_retries(state)
             await self._dispatch(state)
 
@@ -648,6 +655,8 @@ class ArtifactProcessingSupervisor:
                 state.next_discovery_at = loop.time() + _DISCOVERY_PAGE_DELAY_SECONDS
         else:
             state.reconcile_complete = True
+        if binding.source_count_scope_filter is not None and loop.time() >= state.next_count_at:
+            await self._discover_count(state)
         # Alternate discovery channels so explicit traffic cannot monopolize admission.
         state.automatic_next = not state.automatic_next
         if state.automatic_next:
@@ -656,6 +665,37 @@ class ArtifactProcessingSupervisor:
         else:
             await self._discover_requested(state)
             await self._discover_automatic(state)
+
+    async def _discover_count(self, state: _FamilyState) -> None:
+        """Accept threshold work without changing time schedules or accepted retries."""
+        binding = state.binding
+        scope_filter = binding.source_count_scope_filter
+        capacity = min(self._fresh_capacity(state), _DISCOVERY_PAGE_SIZE)
+        if scope_filter is None or capacity <= 0:
+            return
+        admitted = []
+        async with self._database.transaction() as connection:
+            await self._leases.require_fence(connection, self._require_current_fence())
+            rows = await self._intents.scan(
+                connection, binding.binding_name, after_sequence=state.count_after, limit=capacity, dirty_only=True
+            )
+            candidates = tuple(
+                row.scope_id
+                for row in rows
+                if row.requested_generation == row.handled_generation
+                and row.scope_id not in state.queued
+                and row.scope_id not in state.running
+                and row.scope_id not in state.retries
+            )
+            eligible = await scope_filter(connection, candidates)
+            for scope in candidates:
+                if scope in eligible:
+                    await self._intents.request(connection, scope, binding.binding_name)
+                    admitted.append(scope)
+        state.count_after = rows[-1].pending_sequence if len(rows) == capacity else 0
+        state.next_count_at = asyncio.get_running_loop().time() + (0.01 if state.count_after else self._tick)
+        for scope in admitted:
+            self._enqueue(state, scope)
 
     async def _discover_requested(self, state: _FamilyState) -> None:
         capacity = self._fresh_capacity(state)
@@ -1093,6 +1133,8 @@ class ArtifactProcessingSupervisor:
                 continue
             if state.next_schedule_at is not None:
                 deadlines.append(state.next_schedule_at)
+            if state.binding.source_count_scope_filter is not None:
+                deadlines.append(max(now, state.next_count_at))
             if state.discovery_pending or state.scan_in_progress or not state.reconcile_complete or state.degraded:
                 deadlines.append(max(now, state.next_discovery_at))
         return None if not deadlines else max(0.001, min(deadlines) - now)

@@ -480,9 +480,22 @@ def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_to
         "max_bytes",
         "assembly",
         "include_code",
+        "evidence_selection",
     }
     assert set(schemas["PreparedContext"]["properties"]) == {"schema", "status", "content", "content_bytes"}
     assert not {"memory", "mode", "selection"} & set(schemas["PreparedContext"]["properties"])
+
+
+def test_evidence_selection_transport_preserves_explicit_opt_in_and_default() -> None:
+    from powercontext.server.mapping import prepare_context_request
+
+    ordinary = PrepareContextRequest(scope_id="scope", query="calibration")
+    assert ordinary.evidence_selection is False
+    assert prepare_context_request(ordinary).evidence_selection is False
+    selected = PrepareContextRequest(scope_id="scope", query="calibration", evidence_selection=True)
+    assert prepare_context_request(selected).evidence_selection is True
+    with pytest.raises(ValidationError):
+        PrepareContextRequest.model_validate({"scope_id": "scope", "query": "calibration", "evidence_selection": "yes"})
 
 
 def test_experience_skill_and_review_operations_are_typed_and_family_routed() -> None:

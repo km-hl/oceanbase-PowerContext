@@ -1,0 +1,29 @@
+name: Gaode Nearby Skill Tests
+
+on:
+  push:
+    branches: [gaode]
+    paths:
+      - scripts/amap_nearby.py
+      - tests/test_amap_nearby.py
+      - .github/workflows/gaode-skill.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-skill-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run offline behavior tests (no API Key)
+        run: python -m unittest discover -s tests -p 'test_amap_nearby.py' -v
+      - name: Check CLI command
+        run: python scripts/amap_nearby.py --help

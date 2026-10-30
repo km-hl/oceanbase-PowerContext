@@ -5,13 +5,14 @@ description: PowerContext memory search/save, inventory, handoff and candidate r
 
 # PowerContext project context
 
-Use the connected `powercontext` MCP server to manage project memory and handoffs. Select an operation from the user's intent, then read only the corresponding reference when detailed procedure is needed. Self-contained tool calls need no extra Skill detour. Do not add searches, writes, or Scope changes just to use this Skill.
+Use the connected `powercontext` MCP server to manage project memory and handoffs. For explicit SDD-governed code work, use the independent local SDD module described below; do not treat historical Memory as current spec. Select an operation from the user's intent, then read only the corresponding reference when detailed procedure is needed. Self-contained tool calls need no extra Skill detour. Do not add searches, writes, or Scope changes just to use this Skill.
 
 ## Choose an operation
 
 | User intent | Operation and reference |
 | --- | --- |
 | The conversation already has enough information, ordinary coding, conceptual questions, or preview only | Complete the task directly without PowerContext calls, Scope creation, or Source writes. |
+| User asks to implement or modify code under current versioned SDD specifications | Read [SDD engineering context](references/sdd-context.md); query current spec/code/test evidence before editing, then record an actual verification after the change. This local workflow needs no Scope or MCP write. |
 | Find earlier decisions or missing project history | `search_memory`; [Scope and memory](references/scope-memory.md). |
 | Explicitly list or audit saved memory | `list_memory_entries`; do not replace relevance search with an inventory or expand an empty search into a listing. |
 | Explicitly remember, correct, or retire durable memory | `remember_memory`, `revise_memory_entry`, `retire_memory_entry`; [Scope and memory](references/scope-memory.md). |

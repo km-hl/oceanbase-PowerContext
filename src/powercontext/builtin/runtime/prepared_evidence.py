@@ -66,7 +66,6 @@ _STOP = frozenset([
     "and",
     "or",
     "but",
-    "not",
     "do",
     "does",
     "did",
@@ -223,14 +222,14 @@ def _query_weights(query: str, terms: set[str], frequency: Counter[str], documen
     }
     operators = set(
         english_terms(
-            "associate association express expression activate activation increase decrease reduce promote induce regulate higher lower positive negative"
+            "associate association express expression activate activation increase decrease reduce promote induce regulate higher lower positive negative inhibit suppress prevent attenuate enhance impaired impair lack absence greater fewer"
         )
     )
     return {
         # A term shared by every candidate carries less distinguishing evidence
         # than a term confined to one candidate.
         term: math.log(1 + (document_count - frequency[term] + 0.5) / (frequency[term] + 0.5))
-        * (2.5 if term in entities else 0.5 if term in operators else 1.0)
+        * (2.5 if term in entities else 1.4 if term in operators else 1.0)
         for term in sorted(terms)
     }
 
@@ -264,16 +263,16 @@ def _sentence_candidates(
         terms = _concept_terms(body, aliases)
         score = sum(weights.get(term, 0.0) for term in sorted(terms)) / total
         markers = re.findall(
-            r"\b(BACKGROUND|CONTEXT|OBJECTIVES?|METHODS?|DESIGN|RESULTS?|CONCLUSIONS?|FINDINGS)\b", body
+            r"\b(BACKGROUND|CONTEXT|OBJECTIVES?|METHODS?|DESIGN|RESULTS?|CONCLUSIONS?|FINDINGS)\b", body, re.I
         )
         if markers:
-            section = markers[-1]
+            section = markers[-1].upper()
         if section.startswith(("RESULT", "CONCLU", "FINDING")):
             score *= 1.5
         elif section:
             score *= 0.8
         if index == 0:
-            score *= 0.8
+            score *= 0.7
         if re.search(r"\b(results?|conclusions?|found|showed|demonstrated|revealed|observed)\b", body, re.I):
             score *= 1.15
         sentences.append(_Sentence(PreparedMemoryFragment(address, start, end, body), terms, score))
@@ -321,9 +320,15 @@ def _sparse_plans(
     relevant = sorted((sentence for sentence in sentences if sentence.score > 0), key=lambda item: -item.score)
     alternatives = []
     envelope = len(_render(()).encode("utf-8"))
-    pairs = combinations(relevant, 2)
-    larger = (relevant[:count] for count in range(3, min(5, len(relevant)) + 1))
-    for group in chain(pairs, larger):
+    # A finding can span several separated sentences. Explore combinations
+    # instead of requiring every larger plan to contain the top-scoring pair.
+    strongest = relevant[:8]
+    groups = chain(
+        combinations(relevant, 2),
+        combinations(strongest, 3),
+        combinations(strongest[:6], 4),
+    )
+    for group in groups:
         included: list[PreparedMemoryFragment] = []
         for sentence in sorted(group, key=lambda item: item.fragment.start):
             included = _merge(included, sentence.fragment, text)
@@ -345,7 +350,9 @@ def _combine_plans(groups: Sequence[Sequence[_Plan]], max_bytes: int) -> list[Pr
                 combined_cost = cost + plan.cost + bool(fragments)
                 if combined_cost > max_bytes:
                     break
-                combined_score = score + plan.score
+                # Prefer another complete sentence from a strong source over a
+                # marginal, redundant citation; allow complementary sources.
+                combined_score = score + plan.score * (0.82 if fragments else 1.0)
                 if combined_score > updated.get(combined_cost, (-1.0, ()))[0]:
                     updated[combined_cost] = (combined_score, fragments + plan.fragments)
         states = {}
@@ -364,7 +371,9 @@ def _plan_score(sentences: Sequence[_Sentence], prior: float, weights: dict[str,
     common = set().union(*(sentence.terms for sentence in sentences))
     coverage = sum(weight for term, weight in weights.items() if term in common) / (sum(weights.values()) or 1.0)
     # Coverage cannot independently reward a document with weak overall relevance.
-    return prior**2 * (scores[0] + 0.5 * sum(scores[1:4]) + 0.0003 * length + 0.15 * coverage)
+    return prior**2 * (
+        scores[0] + 0.55 * sum(scores[1:4]) + 0.0004 * min(length, 1600) + 0.20 * coverage
+    )
 
 
 def _window_plans(

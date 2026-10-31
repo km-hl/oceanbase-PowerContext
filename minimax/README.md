@@ -1,6 +1,6 @@
 # 规有所依 — MiniMax × OceanBase × PowerContext SDD 上下文管理
 
-> OceanBase 2026 生态赛题 **minimax/** 独立交付目录。基线来自官方 `2026-competition-ecosystem` 目录树；本仓库的同名分支为重新构建的对应快照。**此代码库不含任何已伪造的模型或数据库在线调用记录。**
+> OceanBase 2026 生态赛题 **minimax/** 独立交付目录。Git 提交历史实际继承自官方 `2026-competition-ecosystem` 根提交 `d647275c308e09b7b623f322a26f5c4e85734fb0`。**此代码库不含任何已伪造的模型或数据库在线调用记录。**
 
 ## 验收全流程
 
@@ -10,7 +10,7 @@
 | 导入、检索规格/代码/测试 | `python -m ctxsdd init` 和 `plan`；`scripts/spec_update_check.sh` | SQLite 离线验证，OceanBase 需在线运行 |
 | MiniMax 真正生成代码差异 | `python -m ctxsdd ask` → `records/model.patch` → `apply` | **未调用真实 API；需用户提供 Key 并执行在线流程** |
 | 新增功能与回归测试 | 同一组测试：修改前 6 失败、3 回归通过；修改后 9 通过 | 本地验证 |
-| PowerContext 持久状态、重启复用 | `MM_PC_ENABLED=1`，实际 `open_builtin_contexts` / ContentCapture / Source journal；`pc-state`、下一次 `plan.progress` | 适配代码已接入，需安装 SDK 后在线运行确认 |
+| PowerContext 持久状态、重启复用 | `MM_PC_ENABLED=1`，实际 `open_builtin_contexts` / ContentCapture / Source journal；`pc-state`、下一次 `plan.progress` | 已通过 GitHub Actions 在干净环境完成 PowerContext SDK 跨进程写入与读取（https://github.com/km-hl/oceanbase-PowerContext/actions/runs/41174031660） |
 | 完整提交材料 | 本目录源码、文档、快照、样例、离线记录、待生成的在线日志位置 | 在线记录尚待生成 |
 
 **重要：本地 `sqlite-offline` 模式只用于自测，不能作为 OceanBase、MiniMax、PowerContext 三项真实使用的证明。** 题目是六项全部通过才得分；不能仅用本地测试成绩断言获得 20 分。

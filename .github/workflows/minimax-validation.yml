@@ -1,0 +1,30 @@
+name: MiniMax SDD offline and native PowerContext verification
+on:
+  push:
+    branches: [minimax]
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: minimax
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Pure Python SDD tests
+        run: python -m unittest discover -s tests -v
+      - name: Verify local SDD and business regression
+        run: |
+          python -m ctxsdd init
+          python -m ctxsdd plan > records/context_pack.json
+          python -m ctxsdd verify
+          bash scripts/e2e_flow.sh
+          bash scripts/spec_update_check.sh
+      - name: PowerContext SDK source-journal restart integration
+        run: python scripts/powercontext_roundtrip.py

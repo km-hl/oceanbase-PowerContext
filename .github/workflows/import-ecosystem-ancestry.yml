@@ -1,0 +1,42 @@
+name: One-time align MiniMax branch with official ecosystem ancestry
+on:
+  push:
+    branches: [minimax]
+    paths:
+      - '.github/workflows/import-ecosystem-ancestry.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  align:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Fetch official ecosystem root and replay only MiniMax submissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+users.noreply.github.com'
+          git fetch https://github.com/oceanbase/powercontext.git refs/heads/2026-competition-ecosystem
+          official="$(git rev-parse FETCH_HEAD)"
+          test "$official" = 'd647275c308e09b7b623f322a26f5c4e85734fb0'
+          origin_minimax="$(git ls-remote origin refs/heads/minimax | cut -f1)"
+          origin_eco="$(git ls-remote origin refs/heads/2026-competition-ecosystem | cut -f1)"
+          if git merge-base --is-ancestor "$official" "$origin_minimax"; then
+            echo 'Already based on official ecosystem root'; exit 0
+          fi
+          test "$origin_eco" = '388417202bdf261416e79c55f121b60e70668209'
+          git switch -c minimax-replayed "$origin_minimax"
+          git rebase --onto "$official" "$origin_eco" minimax-replayed
+          aligned="$(git rev-parse HEAD)"
+          echo "Official ecosystem baseline: $official"
+          echo "Rebased MiniMax head: $aligned"
+          git push origin "$official:refs/heads/2026-competition-ecosystem" \
+            --force-with-lease="refs/heads/2026-competition-ecosystem:$origin_eco"
+          git push origin "$aligned:refs/heads/minimax" \
+            --force-with-lease="refs/heads/minimax:$origin_minimax"

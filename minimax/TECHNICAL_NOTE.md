@@ -36,6 +36,6 @@
 
 **PowerContext**：`MM_PC_ENABLED=1` 使用原生 `BuiltinConfig` + `open_builtin_contexts`，固定 idempotency Scope，保存 `ContentCapture` 来源条目，通过 `journal.entries()` 在新进程读取，并将之前的验证和待办写入下一次 `plan.progress`；自有的 `mm_events` 只作无 SDK 离线测试及日志。
 
-**评审证据**：同一组 `test_feature.py` 在旧版源码 6 项失败，`test_regression.py` 原回归 3 项通过；新版全部 9 项通过（离线实测）。`scripts/spec_update_check.sh` 检查修改规格后重新导入且 context 改变。在线 API、真实 seekdb 以及 PowerContext 原生状态操作的运行日志**仍须在具备真实服务/密钥时生成**，不能从本地 SQLite 结果推断完成。
+**评审证据**：同一组 `test_feature.py` 在旧版源码 6 项失败，`test_regression.py` 原回归 3 项通过；新版全部 9 项通过（离线实测）。`scripts/spec_update_check.sh` 检查修改规格后重新导入且 context 改变。PowerContext SDK 跨进程验证已由 GitHub Actions 完成；真实 MiniMax API 与 seekdb 服务的运行证据仍需分别核对，不能从本地 SQLite 结果推断完成。
 
 **限制**：Python 顶层 AST 覆盖、全表 SQL 读取加本机排序不适合超大型仓库；只允许单任务局部补丁；模型输出可能不能应用或需要重试。不会自动执行来源文件中的命令，也不会把私密 Token 写入仓库。

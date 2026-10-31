@@ -36,3 +36,17 @@ jobs:
           PYTHONPATH=src competition/.venv/bin/python -m pytest -q \
             tests/test_retrieval_quality_regressions.py \
             tests/test_competition_runtime_regressions.py
+      - name: SciFact public-data quality sample
+        run: |
+          mkdir -p "$RUNNER_TEMP/scifact"
+          curl -fsSL --retry 3 "https://scifact.s3-us-west-2.amazonaws.com/release/latest/data.tar.gz" -o "$RUNNER_TEMP/scifact/data.tar.gz"
+          tar -xzf "$RUNNER_TEMP/scifact/data.tar.gz" -C "$RUNNER_TEMP/scifact"
+          data_file=$(find "$RUNNER_TEMP/scifact" -type f -name corpus.jsonl -print -quit)
+          if [ -z "$data_file" ]; then echo "SciFact corpus missing"; exit 1; fi
+          data_dir=$(dirname "$data_file")
+          PYTHONPATH=src competition/.venv/bin/python scripts/evaluate_evidence_quality.py \
+            --native --all-candidates --data-dir "$data_dir" \
+            --max-claims 60 --output "$RUNNER_TEMP/evidence-dev.json"
+          PYTHONPATH=src competition/.venv/bin/python scripts/evaluate_evidence_quality.py \
+            --native --all-candidates --data-dir "$data_dir" --claims claims_train.jsonl \
+            --skip-claims 150 --max-claims 60 --output "$RUNNER_TEMP/evidence-train.json"

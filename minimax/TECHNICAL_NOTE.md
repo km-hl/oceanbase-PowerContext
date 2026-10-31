@@ -1,34 +1,41 @@
-# 一页技术说明：规格有版本，代码有证据，测试有保质期
+# 一页技术说明：规有所依的工程上下文
 
-## 1. 问题与结构
+**问题与交付**：AI 编程助手在长期维护中容易引用过期规格、错过回归边界或误信旧测试。此系统提供一个真实可执行的阅读清单业务案例（`status`、`min_rating` 两项局部筛选），用不可混淆的规格版本与当前源码哈希组织工程证据；模型改码和验证是独立、可失败的实际步骤。
 
-原实现只有 SDK 内部的 SDD 规则读取，没有赛题规定的独立业务案例、测试前后对比、模型补丁流程及可恢复状态。新增 `minimax/` 独立实现并复用已提交的 PowerContext MiniMax Skill 工作流，避免改动别的比赛题目。
+## 架构与职责
 
 ```
-.sdd/specs/*.json + business/*.py
-          ↓ 版本过滤 + Python AST 切分 + 源文件 SHA-256
-    ctxsdd/core.py → mm_documents（OceanBase/seekdb 或 SQLite 离线）
-          ↓ SQL 持久查询 + 确定性关键词排序
-    context_pack.json （spec 修订/路径/行号/代码符号/候选测试）
-          ↓ ctxsdd/ask （真实 MiniMax HTTPS API，需要 Key）
-    model.patch → git apply --check → git apply
-          ↓ ctxsdd/verify
-   feature + regression 双测试 → mm_events 持久事件
-          ↓ ctxsdd/state（新进程重建任务进展，核对最新输入指纹）
+.sdd/specs/*.json ─┐
+业务代码 + 原测试 ───┤ AST / JSON 分块 + 文件 SHA-256
+                   ▼
+             ctxsdd/core.py
+                   │ SQL 导入/检索
+                   ▼
+           OceanBase/seekdb (mm_documents)
+                   │ 查询结果含 path/lines/symbol/source hash
+                   ▼
+           context-pack.json + PowerContext 旧任务进度
+                   │ MiniMax HTTPS API (真实模型生成 diff)
+                   ▼
+       model.patch → 白名单 + git apply --check
+                   ▼
+       实际修改的源码 + 目标功能测试 + 原回归测试
+                   │ 状态与验证证据
+                   ▼
+     PowerContext Builtin Source journal / SQLiteConfig
+                   │ 新进程 pc-state + 再次 plan(progress)
+                   ▼
+               延续未完成任务
 ```
 
-## 2. 状态与一致性
+**数据选取**：只使用最高且 active 的版本规格；r1 被 r2 替代。代码经 Python AST 获取顶层符号和行号，测试按规格关联路径定位。`plan` 每次重导入持久 SQL 行并查询，关键词得分采用包含匹配/子词二元组后进程内排序。这个简单策略保证可复现，但不声称全文索引或向量相关性优化。文件、规格内容 SHA 均附在结果中，旧验证输入发生变化即失效。
 
-- 规格按 `(id, revision)` 选最大修订；仅 `active` 才生效，R1 已被 R2 取代。
-- `plan` 每次重读原文件并刷新数据库索引，因此规格内容修改后，即便 revision 没变，其 `sha256` 和输出也会变。
-- 测试记录保留业务源码、测试文件、规格内容的 SHA-256；`state` 重新扫描实时字节，只要一个已声明输入变化就报告 `fresh=false`，不继承历史“通过”结论。
-- AST 分块提供 `path`、`line_from`、`line_to`、`symbol` 和文件 `sha256`；未覆盖动态调用图，对这种情况不伪造调用关系。
-- `ask` 不替用户执行不可信补丁；`apply` 做路径白名单与 `git apply --check`，并确认文件字节真的改变。
+**MiniMax**：API Key 来自环境，仅 HTTPS 请求；请求以当前 SQL 结果和旧状态构造，不附加私有思维链。返回代码补丁保存本地，记录模型标识、响应 ID、Token 计数、补丁摘要。只允许修改指定业务源码，经 `git apply --check` 实际变更后才保存进展；人工参考 diff 与真实 API 回执严格区分。
 
-## 3. 可复现验证
+**OceanBase/seekdb**：`MM_OB_HOST` 非空时走 PyMySQL，创建/写入 `mm_documents`，从持久 SQL 结果构造上下文；离线只用于单元测试的 SQLite 不可冒充该项。数据库地址、版本和实际查询需在在线运行中确认。
 
-快照 `before/service.py` 仅有不带参数的 `list_books()`：新增特性测试 **6 错误**，回归 **3 通过**。实际新版本支持 `status`、`min_rating` 及其 AND 组合，且非法参数拒绝：新增功能 **6 通过**，回归 **3 通过**。工程上下文测试 **7 通过**。详见 `docs/runs/offline-validation.json`。
+**PowerContext**：`MM_PC_ENABLED=1` 使用原生 `BuiltinConfig` + `open_builtin_contexts`，固定 idempotency Scope，保存 `ContentCapture` 来源条目，通过 `journal.entries()` 在新进程读取，并将之前的验证和待办写入下一次 `plan.progress`；自有的 `mm_events` 只作无 SDK 离线测试及日志。
 
-## 4. 边界
+**评审证据**：同一组 `test_feature.py` 在旧版源码 6 项失败，`test_regression.py` 原回归 3 项通过；新版全部 9 项通过（离线实测）。`scripts/spec_update_check.sh` 检查修改规格后重新导入且 context 改变。在线 API、真实 seekdb 以及 PowerContext 原生状态操作的运行日志**仍须在具备真实服务/密钥时生成**，不能从本地 SQLite 结果推断完成。
 
-已验证的是本地 SQLite 离线链路，**不是**真实 seekdb、MiniMax 或 PowerContext Server 运行。SQLite 与 seekdb 只是相同模块的两种持久化适配器，后者须配置真实服务并单独留运行证据。真实模型生成的补丁必须以真实 API 返回为准，不能使用人工编写的 `applied.diff` 冒充。后台判题的 `执行失败 0.000` 也可能来自评测器拉取或初始化，无法凭分数判断代码是否被执行。
+**限制**：Python 顶层 AST 覆盖、全表 SQL 读取加本机排序不适合超大型仓库；只允许单任务局部补丁；模型输出可能不能应用或需要重试。不会自动执行来源文件中的命令，也不会把私密 Token 写入仓库。

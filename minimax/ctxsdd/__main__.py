@@ -10,6 +10,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .core import ROOT, Store, documents, latest_verification, plan, snapshot
@@ -70,6 +71,9 @@ def ask_minimax(task: str):
                "patch_sha256": hashlib.sha256(text.encode()).hexdigest(), "patch": str(output.relative_to(ROOT))}
     with Store() as store:
         store.event("minimax_patch_generated", receipt)
+    if os.getenv("MM_PC_ENABLED") == "1":
+        from .powercontext_state import record
+        receipt["powercontext"] = record("patch_generated", model=model, patch_sha256=receipt["patch_sha256"])
     return receipt
 
 
@@ -97,6 +101,9 @@ def apply_patch(path: Path):
     receipt = {"before": before, "after": after, "patch_sha256": hashlib.sha256(patch.encode()).hexdigest()}
     with Store() as store:
         store.event("patch_applied", receipt)
+    if os.getenv("MM_PC_ENABLED") == "1":
+        from .powercontext_state import record
+        receipt["powercontext"] = record("patch_applied", patch_sha256=receipt["patch_sha256"], snapshot=snapshot())
     return receipt
 
 
@@ -109,20 +116,23 @@ def verify():
     details = {}
     for kind, command in checks.items():
         result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=60, check=False)
-        details[kind] = {"exit_code": result.returncode, "stdout": result.stdout[-3000:], "stderr": result.stderr[-3000:]}
+        details[kind] = {"command": command, "exit_code": result.returncode, "stdout": result.stdout[-3000:], "stderr": result.stderr[-3000:]}
     after = snapshot()
     passed = all(item["exit_code"] == 0 for item in details.values()) and before == after
-    evidence = {"passed": passed, "snapshot": before, "checks": details, "inputs_mutated_during_test": before != after}
+    evidence = {"passed": passed, "recorded_at": datetime.now(UTC).isoformat(), "snapshot": before, "checks": details, "inputs_mutated_during_test": before != after}
     with Store() as store:
         store.event("verification", evidence)
     save_json("verification.json", evidence)
+    if os.getenv("MM_PC_ENABLED") == "1":
+        from .powercontext_state import record
+        evidence["powercontext"] = record("verified", verification={"passed": passed, "snapshot": before, "checks": {k: {"exit_code": v["exit_code"]} for k,v in details.items()}})
     return evidence
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="MiniMax SDD context and test evidence")
     subs = parser.add_subparsers(dest="command", required=True)
-    for name in ("init", "doctor", "plan", "ask", "apply", "verify", "state"):
+    for name in ("init", "doctor", "plan", "ask", "apply", "verify", "state", "pc-state"):
         sub = subs.add_parser(name)
         if name in {"plan", "ask"}:
             sub.add_argument("--task", default=task_data()["query"])
@@ -151,6 +161,9 @@ def main(argv=None):
             output = apply_patch(file)
         elif args.command == "verify":
             output = verify()
+        elif args.command == "pc-state":
+            from .powercontext_state import read
+            output = read()
         else:
             with Store() as store:
                 events = store.events()

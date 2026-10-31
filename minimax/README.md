@@ -1,82 +1,102 @@
-# 规有所依：MiniMax × SDD 工程上下文交付物
+# 规有所依 — MiniMax × OceanBase × PowerContext SDD 上下文管理
 
-此目录是 OceanBase 生态赛题 **“规有所依，面向软件持续演进的 SDD 上下文管理系统”** 的独立可运行实现，基于现有 PowerContext 项目，不修改 `2026-competition` 分支。
+> OceanBase 2026 生态赛题 **minimax/** 独立交付目录。基线来自官方 `2026-competition-ecosystem` 目录树；本仓库的同名分支为重新构建的对应快照。**此代码库不含任何已伪造的模型或数据库在线调用记录。**
 
-## 核心闭环
+## 验收全流程
 
-`有效规格 → 当前代码/测试扫描 → OceanBase/seekdb 或离线 SQLite 索引 → 按任务检索上下文 → MiniMax 生成统一 diff → 限定路径下的 git apply → 新功能/回归双测试 → 结果与输入指纹持久保存 → 新进程恢复`。
+| 必做项 | 入口 / 可复现证据 | 状态 |
+|---|---|---|
+| 业务任务有真实修改 | `business/reading_list/`；`docs/snapshots/{before,after}`；`docs/snapshots/applied.diff` | 本地验证 |
+| 导入、检索规格/代码/测试 | `python -m ctxsdd init` 和 `plan`；`scripts/spec_update_check.sh` | SQLite 离线验证，OceanBase 需在线运行 |
+| MiniMax 真正生成代码差异 | `python -m ctxsdd ask` → `records/model.patch` → `apply` | **未调用真实 API；需用户提供 Key 并执行在线流程** |
+| 新增功能与回归测试 | 同一组测试：修改前 6 失败、3 回归通过；修改后 9 通过 | 本地验证 |
+| PowerContext 持久状态、重启复用 | `MM_PC_ENABLED=1`，实际 `open_builtin_contexts` / ContentCapture / Source journal；`pc-state`、下一次 `plan.progress` | 适配代码已接入，需安装 SDK 后在线运行确认 |
+| 完整提交材料 | 本目录源码、文档、快照、样例、离线记录、待生成的在线日志位置 | 在线记录尚待生成 |
 
-**已实测**：本地 SQLite 离线链路；修改前新增功能测试 6/6 失败、原回归 3/3 通过；修改后业务测试 9/9 通过；上下文模块测试 7/7 通过。运行记录见 `docs/runs/offline-validation.json`。
+**重要：本地 `sqlite-offline` 模式只用于自测，不能作为 OceanBase、MiniMax、PowerContext 三项真实使用的证明。** 题目是六项全部通过才得分；不能仅用本地测试成绩断言获得 20 分。
 
-**未实测，不能作为已完成证据**：真实 MiniMax API 响应、真实 OceanBase/seekdb 连接，以及 PowerContext Server 的跨会话 Handoff。这三项有真实代码接入/配置或文档，但需有模型 Token、数据库和服务后才能做端到端验证。`sqlite-offline` 结果绝不能冒充 seekdb。
+## 业务项目与任务
 
-## 提交结构
+这是一个不需要额外服务的 Python 阅读清单业务：`ReadingList` 提供 `list_books(status=None, min_rating=None)` 及 WSGI GET `/books`。任务 `tasks/TASK-001.json` 要求：增加 `status`、`min_rating` 及组合过滤，同时保留原来添加书籍、去重、无过滤结果顺序和非法输入校验等行为。
 
-- `ctxsdd/`：规格版本选择、代码 AST 分块、SQLite/seekdb 存储、按任务检索、带路径/行号/SHA 的 context pack、MiniMax 调用、补丁安全校验、实际测试和状态持久化。
-- `business/reading_list/`：真实 Python 业务项目，增加 `status` + `min_rating` 筛选和 HTTP WSGI API。
-- `business/tests/`：6 项新增功能测试、3 项原功能回归测试。
-- `.sdd/specs/`：同 ID 的 R1 失效规格、R2 当前生效规格，支持内容修改与指纹失效检测。
-- `tasks/TASK-001.json`：开发任务、目标路径和验收边界。
-- `docs/snapshots/{before,after}/`、`docs/snapshots/applied.diff`：改前、改后源码快照和可应用的统一差异。
-- `docs/verify-sample.md`、`docs/runs/`：复现实验与真实离线运行输出。
-- `TECHNICAL_NOTE.md`：架构、证据可信边界、限制说明。
+- `.sdd/specs/reading-list-r1.json` 是历史规格；`r2.json` 为当前有效规格。
+- `business/tests/test_feature.py` 六项新增行为测试，`test_regression.py` 三项原有回归测试。
+- `docs/snapshots/before/service.py` 是缺少筛选功能的真实旧代码，`after/service.py` 是实现后的代码，`applied.diff` 是人工参考差异，**不能冒充 MiniMax 生成结果**。
 
-## 离线快速验证（无需 Token、数据库服务）
-
-Linux/macOS：
+## 安装（干净 Python 3.11+ 环境）
 
 ```bash
 cd minimax
-python3 -m ctxsdd init
-python3 -m ctxsdd plan --task '阅读清单 status min_rating 筛选' > /tmp/minimax-context.json
-python3 -m unittest discover -s tests -v
-python3 -m ctxsdd verify
-python3 -m ctxsdd state
-bash scripts/e2e_flow.sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
 ```
 
-Windows PowerShell（需要 Python 3.11+）：
+`requirements.txt` 明确包含 `powercontext[builtin]>=1.2,<2` 和 `PyMySQL>=1.1,<2`。在线模式另需要网络以及真实运行的 OceanBase/seekdb 服务、MiniMax 模型 Key。实际最终依赖版本见安装环境 `pip freeze` 输出。Windows 用对应 PowerShell 的 venv 激活方式。
 
-```powershell
-cd minimax
-python -m ctxsdd init
-python -m ctxsdd plan --task "阅读清单 status min_rating 筛选"
+## 无密钥离线回归（可立刻复现）
+
+```bash
 python -m unittest discover -s tests -v
+python -m ctxsdd init
+python -m ctxsdd plan --task 'status min_rating 筛选' > records/context-pack.json
 python -m ctxsdd verify
 python -m ctxsdd state
+bash scripts/e2e_flow.sh
+bash scripts/spec_update_check.sh
 ```
 
-`state` 是**新 Python 进程**读取之前写入数据库的事件记录；变更规格文件或业务源码后，会返回失效路径和 `fresh=false`。自测产生的数据仅写入 `minimax/records/`，该目录不入库。
+`plan` 每次按有效规格扫描真实文件，按 AST 分块后写入 `mm_documents` 并从 SQL 表**实际读取**检索结果，输出 JSON 包含 `specifications`、`inactive_specs`、`evidence[kind,path,line_from,line_to,symbol,sha256]`、`verification`、`progress`。若修改有效规格正文而不升级版本，SHA 与再次检索内容也会变化。脱离实际仓库文件或虚构条目的输出不会出现。
 
-## 接入真实 OceanBase / seekdb
+本地 `state` 是用于离线验证的 `mm_events`，**不算 PowerContext 的证明**；只有开启 `MM_PC_ENABLED=1` 后才会使用真正的 PowerContext Source journal。
 
-```bash
-pip install "PyMySQL>=1.1,<2"
-export MM_OB_HOST=127.0.0.1
-export MM_OB_PORT=2881
-export MM_OB_USER='root@sys'
-export MM_OB_PASSWORD='your-database-password'
-export MM_OB_DATABASE=mm_sdd
-python3 -m ctxsdd init
-python3 -m ctxsdd plan
-```
+## 真实 MiniMax + OceanBase + PowerContext 全流程（评审所需）
 
-设置 `MM_OB_HOST` 后，存储层使用 PyMySQL 的真实 SQL DDL/DML，将分块落到指定数据库的 `mm_documents` 表，并使用持久事件表 `mm_events`。未配置则默认离线 SQLite。当前小型案例采用全量 SQL 读出后做确定性词汇排序，尚未实现 seekdb 专用的 NGRAM 全文索引；因此不声称完成大型仓库的检索性能优化。
-
-## 接入 MiniMax Code / API
-
-从官方 MiniMax 平台获取可用的 API Key 后，在终端环境变量设置：
+不要将真实 Key 提交到 Git。准备一个可访问的 seekdb/OceanBase MySQL 服务（示例端口 2881），在当前终端设置下列变量：
 
 ```bash
-export MM_MINIMAX_API_KEY='your-api-key'
+export MM_MINIMAX_API_KEY='<your MiniMax API key>'
 export MM_MINIMAX_MODEL='MiniMax-M3.1-Flash'
-python3 -m ctxsdd ask
-# 只审查并应用由模型生成的补丁；不会自动执行
-python3 -m ctxsdd apply --patch records/model.patch
-python3 -m ctxsdd verify
-python3 -m ctxsdd state
+export MM_OB_HOST='127.0.0.1'
+export MM_OB_PORT='2881'
+export MM_OB_USER='root@sys'
+export MM_OB_PASSWORD='<your database password>'
+export MM_OB_DATABASE='mm_sdd'
+export MM_PC_ENABLED=1
+export MM_PC_SCOPE='minimax-sdd-reading-list-task'
 ```
 
-MiniMax 请求经 HTTPS 调用 OpenAI 兼容接口；缺少 API Key 时明确报错，**不会把本地差异冒充 AI 生成**。补丁仅允许修改 `minimax/business/reading_list/` 的两个业务文件，使用 `git apply --check` 先校验，再实际应用。密钥永不入库。
+然后在**干净 worktree** 运行：
 
-原有的 `integrations/minimax/plugins/powercontext/` Skill 保持可用，SDD 模块提供其工程上下文与验证来源。需使用 PowerContext 的 Memory/Handoff 持久化能力时，在已经连接 PowerContext MCP Server 的 MiniMax Code 会话里，把本次 `context_pack.json`、验证记录的路径及哈希作为交接证据提交；本目录的本地事件表不是 PowerContext Server 的替代品。
+```bash
+bash scripts/online_e2e.sh
+```
+
+脚本依次执行：还原功能未实现的源码 → 验证新增测试失败且旧回归通过 → **seekdb/OceanBase 真建表和导入文档** → 按任务从数据库检索规格/符号/测试 → **MiniMax API 真返回补丁** → 审核允许的路径并应用 → 跑新增功能与回归测试 → **通过 PowerContext SDK 将验证结果保存为 Source** → 新 Python 进程 `pc-state` 读 Source journal → 新 `plan` 从 PowerContext 恢复 `progress`。所有结果写入被 Git 忽略的 `records/online-时间戳/`；生成后应检查脱敏，再提交到 `docs/runs/` 作为官方技术使用记录。
+
+注意：本脚本只接受真实调用与真实测试，不会“预先生成”API 回执；模型可能生成无法应用或不能通过测试的补丁，此时脚本非零退出，属于需修复的真实失败。若要确认数据库种类，请在真实服务执行 `SELECT VERSION(), @@version_comment;` 并保留响应及 SQL 检索记录。
+
+### 分步调试
+
+```bash
+python -m ctxsdd init           # SQL 建库/建表、重建索引
+python -m ctxsdd doctor         # 类型/数据量/是否有模型 Key
+python -m ctxsdd plan           # 返回上下文（会读历史 PC 进展）
+python -m ctxsdd ask            # 真实 MiniMax HTTPS 模型调用
+python -m ctxsdd apply --patch records/model.patch  # git apply --check，然后实际应用
+python -m ctxsdd verify         # 功能与回归分别记录退出码并保存 PC Source
+python -m ctxsdd pc-state       # 独立进程重新打开 PowerContext SQLite Source journal
+python -m ctxsdd plan           # 进展保存在输出 progress 字段中
+```
+
+PowerContext 使用 `BuiltinConfig(database=SQLiteConfig(...))` / `open_builtin_contexts`，Scope 通过固定 `idempotency_key` 恢复；内容由 `ContentCapture` 写入 Source journal，后续进程从 `journal.entries()` 读取并折叠。这是真正的 PowerContext SDK 写入与读取，不需要搭建 PowerContext HTTP Server；**不要把额外自建的 SQLite 事件表当成 PowerContext**。
+
+## 文件说明与已知限制
+
+- `ctxsdd/core.py`：有效版本筛选、源码和测试定位、OceanBase/SQLite 适配、基于查询相关性的文档选取、SHA 新鲜度。
+- `ctxsdd/powercontext_state.py`：PowerContext SDK 原生来源存储与恢复。
+- `ctxsdd/__main__.py`：MiniMax 请求、路径白名单补丁、实际测试、CLI。
+- `scripts/online_e2e.sh`：真实在线闭环（需要 Key 和数据库），`scripts/spec_update_check.sh`：真实规格刷新。
+- `docs/verify-sample.md`：验证样例与结果；`TECHNICAL_NOTE.md`：一页设计/技术分工；`docs/runs/offline-validation.json`：离线测试日志。
+
+本例 SQL 查询确实从 OceanBase 返回持久文档，但关键词相关性在 Python 侧排序，没有声称使用 NGRAM、向量检索或大规模代码图。Python AST 只处理显式顶层函数与类，动态调用和跨语言工程未覆盖。MiniMax 补丁不应未经审查在生产工程应用。必须运行并提交真实在线记录才能主张全部必做项满足。

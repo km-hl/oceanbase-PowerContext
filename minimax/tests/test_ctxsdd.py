@@ -84,3 +84,26 @@ class ContextSystemTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PowerContextStateReducerTests(unittest.TestCase):
+    def test_previous_verified_result_restored_and_invalidated(self):
+        from ctxsdd.powercontext_state import _reduce
+        from unittest.mock import patch
+        events = [
+            {"stage": "patch_generated", "context_sha256": "abc"},
+            {"stage": "verified", "verification": {"passed": True, "snapshot": {"business/a.py": "original"}}},
+        ]
+        with patch('ctxsdd.powercontext_state.snapshot', return_value={"business/a.py": "original"}):
+            state = _reduce(events)
+        self.assertEqual(state["last_stage"], "verified")
+        self.assertTrue(state["last_verification"]["fresh"])
+        self.assertEqual(state["event_count"], 2)
+        with patch('ctxsdd.powercontext_state.snapshot', return_value={"business/a.py": "modified"}):
+            state = _reduce(events)
+        self.assertFalse(state["last_verification"]["fresh"])
+        self.assertEqual(state["todo"], ["Inputs changed: rerun verification"])
+
+    def test_generated_patch_creates_resume_todo(self):
+        from ctxsdd.powercontext_state import _reduce
+        state = _reduce([{"stage": "patch_generated", "context_sha256": "abc"}])
+        self.assertEqual(state["todo"], ["Review/apply model patch", "Run feature and regression tests"])

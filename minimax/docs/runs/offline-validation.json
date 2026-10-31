@@ -1,91 +1,110 @@
 {
-  "record_type": "observed_offline_execution",
-  "captured_at_utc": "2026-10-31T04:55:51.953373+00:00",
-  "python": "3.13.5",
-  "backend": "sqlite-offline",
-  "minimax_api_called": false,
-  "oceanbase_seekdb_connected": false,
-  "powercontext_server_handoff_tested": false,
-  "business_source_sha256": "33ddc06b302bda92bb6dbac0d5730f3058af585ab437781275a746b438b0e683",
-  "tests": {
-    "before_feature": {
-      "command": "python -m unittest discover -s business/tests -p test_feature.py -v",
+  "schema": "minimax.offline-evidence.v2",
+  "recorded_at_utc": "2026-10-31T05:46:44.046962+00:00",
+  "python": "Python 3.13.5",
+  "mode": "sqlite-offline",
+  "explicitly_not_verified": [
+    "MiniMax API actual invocation",
+    "OceanBase/seekdb actual SQL connection",
+    "PowerContext SDK cross-process persistence"
+  ],
+  "commands": [
+    {
+      "stage": "before",
+      "source_sha256": "21d7994dbd92f5b30dc3f6ce59aab3623edcf205cf45b06a169ee10bef24b385",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "business/tests",
+        "-p",
+        "test_feature.py",
+        "-v"
+      ],
       "exit_code": 1,
-      "tests": 6,
-      "errors": 6,
-      "result": "FAILED (errors=6)",
-      "source": "docs/snapshots/before/service.py"
+      "stdout": "",
+      "stderr": "========\nERROR: test_http_filters_and_bad_params (test_feature.FeatureTests.test_http_filters_and_bad_params)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/mnt/data/mm_review/minimax/business/tests/test_feature.py\", line 34, in test_http_filters_and_bad_params\n    body = b\"\".join(app({\"REQUEST_METHOD\": \"GET\", \"PATH_INFO\": \"/books\", \"QUERY_STRING\": query},\n                    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                        lambda status, headers: statuses.append(status)))\n                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/mnt/data/mm_review/minimax/business/reading_list/http_api.py\", line 23, in app\n    books = reading_list.list_books(status=params.get(\"status\", [None])[0], min_rating=rating)\nTypeError: ReadingList.list_books() got an unexpected keyword argument 'status'\n\n======================================================================\nERROR: test_invalid_status_and_rating (test_feature.FeatureTests.test_invalid_status_and_rating)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/mnt/data/mm_review/minimax/business/tests/test_feature.py\", line 42, in test_invalid_status_and_rating\n    self.listing.list_books(status=status)\n    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\nTypeError: ReadingList.list_books() got an unexpected keyword argument 'status'\n\n======================================================================\nERROR: test_rating_filter (test_feature.FeatureTests.test_rating_filter)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/mnt/data/mm_review/minimax/business/tests/test_feature.py\", line 18, in test_rating_filter\n    self.assertEqual([b.id for b in self.listing.list_books(min_rating=4)], [\"a\", \"b\"])\n                                    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^\nTypeError: ReadingList.list_books() got an unexpected keyword argument 'min_rating'\n\n======================================================================\nERROR: test_status_filter (test_feature.FeatureTests.test_status_filter)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/mnt/data/mm_review/minimax/business/tests/test_feature.py\", line 15, in test_status_filter\n    self.assertEqual([b.id for b in self.listing.list_books(status=\"finished\")], [\"a\", \"c\"])\n                                    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\nTypeError: ReadingList.list_books() got an unexpected keyword argument 'status'\n\n----------------------------------------------------------------------\nRan 6 tests in 0.002s\n\nFAILED (errors=6)\n"
     },
-    "before_regression": {
-      "command": "python -m unittest discover -s business/tests -p test_regression.py -v",
-      "exit_code": 0,
-      "tests": 3,
-      "passed": 3,
-      "result": "OK",
-      "source": "docs/snapshots/before/service.py"
-    },
-    "after_feature": {
-      "command": "python -m unittest discover -s business/tests -p test_feature.py -v",
-      "exit_code": 0,
-      "tests": 6,
-      "passed": 6,
-      "result": "OK",
-      "source": "business/reading_list/service.py"
-    },
-    "after_regression": {
-      "command": "python -m unittest discover -s business/tests -p test_regression.py -v",
-      "exit_code": 0,
-      "tests": 3,
-      "passed": 3,
-      "result": "OK",
-      "source": "business/reading_list/service.py"
-    },
-    "context_unit_tests": {
-      "command": "python -m unittest discover -s tests -v",
-      "exit_code": 0,
-      "tests": 7,
-      "passed": 7,
-      "result": "OK"
-    }
-  },
-  "workflow": {
-    "index": {
-      "indexed_chunks": 6,
-      "backend": "sqlite-offline"
-    },
-    "plan": {
-      "schema": "minimax.sdd-context.v1",
-      "specifications": [
-        {
-          "id": "reading-list-filter",
-          "revision": 2
-        }
+    {
+      "stage": "before",
+      "source_sha256": "21d7994dbd92f5b30dc3f6ce59aab3623edcf205cf45b06a169ee10bef24b385",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "business/tests",
+        "-p",
+        "test_regression.py",
+        "-v"
       ],
-      "inactive_specs": [
-        {
-          "id": "reading-list-filter",
-          "revision": 1,
-          "reason": "older_revision"
-        }
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "test_add_validation (test_regression.RegressionTests.test_add_validation) ... ok\ntest_duplicate_ids_rejected (test_regression.RegressionTests.test_duplicate_ids_rejected) ... ok\ntest_insertion_order_without_filter (test_regression.RegressionTests.test_insertion_order_without_filter) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n"
+    },
+    {
+      "stage": "after",
+      "source_sha256": "33ddc06b302bda92bb6dbac0d5730f3058af585ab437781275a746b438b0e683",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "business/tests",
+        "-p",
+        "test_feature.py",
+        "-v"
       ],
-      "evidence_chunks": 6
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "test_combined_filters (test_feature.FeatureTests.test_combined_filters) ... ok\ntest_empty_result (test_feature.FeatureTests.test_empty_result) ... ok\ntest_http_filters_and_bad_params (test_feature.FeatureTests.test_http_filters_and_bad_params) ... ok\ntest_invalid_status_and_rating (test_feature.FeatureTests.test_invalid_status_and_rating) ... ok\ntest_rating_filter (test_feature.FeatureTests.test_rating_filter) ... ok\ntest_status_filter (test_feature.FeatureTests.test_status_filter) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.001s\n\nOK\n"
     },
-    "verify": {
-      "passed": true,
-      "feature_exit_code": 0,
-      "regression_exit_code": 0,
-      "input_mutation": false
+    {
+      "stage": "after",
+      "source_sha256": "33ddc06b302bda92bb6dbac0d5730f3058af585ab437781275a746b438b0e683",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "business/tests",
+        "-p",
+        "test_regression.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "test_add_validation (test_regression.RegressionTests.test_add_validation) ... ok\ntest_duplicate_ids_rejected (test_regression.RegressionTests.test_duplicate_ids_rejected) ... ok\ntest_insertion_order_without_filter (test_regression.RegressionTests.test_insertion_order_without_filter) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n"
     },
-    "state": {
-      "latest_verification_fresh": true,
-      "restored_in_new_process": true
+    {
+      "stage": "context-unit-tests",
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "test_deleted_source_invalidates_past_test (test_ctxsdd.ContextSystemTests.test_deleted_source_invalidates_past_test) ... ok\ntest_index_search_uses_persisted_rows (test_ctxsdd.ContextSystemTests.test_index_search_uses_persisted_rows) ... ok\ntest_model_requires_real_api_key (test_ctxsdd.ContextSystemTests.test_model_requires_real_api_key) ... ok\ntest_only_latest_active_revision_is_retrieved (test_ctxsdd.ContextSystemTests.test_only_latest_active_revision_is_retrieved) ... ok\ntest_patch_rejects_unrelated_files (test_ctxsdd.ContextSystemTests.test_patch_rejects_unrelated_files) ... ok\ntest_unsafe_paths_rejected (test_ctxsdd.ContextSystemTests.test_unsafe_paths_rejected) ... ok\ntest_verification_becomes_stale_when_spec_changes_without_version_bump (test_ctxsdd.ContextSystemTests.test_verification_becomes_stale_when_spec_changes_without_version_bump) ... ok\ntest_generated_patch_creates_resume_todo (test_ctxsdd.PowerContextStateReducerTests.test_generated_patch_creates_resume_todo) ... ok\ntest_previous_verified_result_restored_and_invalidated (test_ctxsdd.PowerContextStateReducerTests.test_previous_verified_result_restored_and_invalidated) ... ok\n\n----------------------------------------------------------------------\nRan 9 tests in 0.060s\n\nOK\n"
+    },
+    {
+      "stage": "spec-refresh",
+      "command": [
+        "bash",
+        "scripts/spec_update_check.sh"
+      ],
+      "exit_code": 0,
+      "stdout": "PASS: changed specification re-imported, SHA changed and database-backed context updated\n",
+      "stderr": ""
     }
-  },
-  "notes": [
-    "Observed by invoking the real Python unittest and ctxsdd commands on a temporary local checkout.",
-    "Before snapshot was copied into the actual business source then restored in a finally block.",
-    "No MiniMax token was available; model.patch and model API logs were not fabricated.",
-    "OceanBase/seekdb credentials were unavailable; backend was SQLite, not OceanBase.",
-    "This is local offline test evidence, not an official competition grade."
   ]
 }

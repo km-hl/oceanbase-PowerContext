@@ -1,3 +1,5 @@
-# Python 3.11+ standard library is sufficient for offline validation.
-# Install this optional package to enable the real OceanBase/seekdb backend.
+# Clean evaluator install: pip install -r requirements.txt
+# The SDK stores SDD task progress in an actual PowerContext Source journal.
+powercontext[builtin]>=1.2,<2
+# OceanBase / seekdb MySQL-protocol client.
 PyMySQL>=1.1,<2

@@ -1,0 +1,53 @@
+name: MiniMax real seekdb SQL integration
+on:
+  push:
+    branches: [minimax]
+    paths:
+      - '.github/workflows/minimax-seekdb.yml'
+  workflow_dispatch:
+jobs:
+  seekdb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: minimax
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install SQL client
+        run: python -m pip install 'PyMySQL>=1.1,<2'
+      - name: Start official seekdb Docker
+        run: |
+          docker run -d --name minimax-seekdb -p 2881:2881 \
+            -e ROOT_PASSWORD=ci-local-only \
+            -e CPU_COUNT=2 -e MEMORY_LIMIT=2G \
+            oceanbase/seekdb:1.4.0-100000172026082615
+      - name: Wait for MySQL-protocol readiness
+        run: |
+          for n in $(seq 1 150); do
+            if python -c 'import pymysql; c=pymysql.connect(host="127.0.0.1",port=2881,user="root",password="ci-local-only",connect_timeout=3); c.close()'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs minimax-seekdb --tail 100
+          exit 1
+      - name: Run actual seekdb persisted SQL and context retrieval
+        env:
+          MM_OB_HOST: 127.0.0.1
+          MM_OB_PORT: '2881'
+          MM_OB_USER: root
+          MM_OB_PASSWORD: ci-local-only
+          MM_OB_DATABASE: mm_sdd
+        run: |
+          python scripts/seekdb_roundtrip.py | tee seekdb-verification.json
+          bash scripts/spec_update_check.sh
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: minimax-seekdb-integration
+          path: minimax/seekdb-verification.json

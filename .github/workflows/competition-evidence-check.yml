@@ -50,3 +50,43 @@ jobs:
           PYTHONPATH=src competition/.venv/bin/python scripts/evaluate_evidence_quality.py \
             --native --all-candidates --data-dir "$data_dir" --claims claims_train.jsonl \
             --output "$RUNNER_TEMP/evidence-train.json"
+          SCIFACT_DATA_DIR="$data_dir" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["SCIFACT_DATA_DIR"])
+          temp = Path(os.environ["RUNNER_TEMP"])
+          corpus = {
+              str(row["doc_id"]): row
+              for row in (json.loads(line) for line in (root / "corpus.jsonl").read_text().splitlines())
+          }
+          for split, outfile in (("dev", "evidence-dev.json"), ("train", "evidence-train.json")):
+              report = json.loads((temp / outfile).read_text())
+              claims = {
+                  row["id"]: row
+                  for row in (json.loads(line) for line in (root / ("claims_" + split + ".jsonl")).read_text().splitlines())
+              }
+              print("HARD_PUBLIC_CASES", split)
+              seen = set()
+              for case in sorted(report["cases"], key=lambda row: row["recall"]):
+                  if case["claim"] in seen:
+                      continue
+                  seen.add(case["claim"])
+                  claim = claims[case["claim"]]
+                  document = corpus[case["doc"]]
+                  sentences = sorted({
+                      index
+                      for rationale in claim["evidence"].get(case["doc"], ())
+                      for index in rationale["sentences"]
+                  })
+                  gold = " | ".join(document["abstract"][index] for index in sentences)
+                  chosen = " | ".join(fragment["text"] for fragment in case["selected"])
+                  print(
+                      "CASE", case["claim"], "recall", round(case["recall"], 3),
+                      "complete", case["complete"], "query", case["query"][:140],
+                      "gold", gold[:380], "chosen", chosen[:360]
+                  )
+                  if len(seen) == 14:
+                      break
+          PY

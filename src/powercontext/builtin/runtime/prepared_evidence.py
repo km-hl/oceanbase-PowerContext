@@ -337,7 +337,7 @@ def _sentence_candidates(
             body,
             re.I,
         ):
-            score *= 2.0
+            score *= 2.8
         sentences.append(_Sentence(PreparedMemoryFragment(address, start, end, body), terms, score))
     return sentences
 

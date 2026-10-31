@@ -352,6 +352,18 @@ def _sentence_candidates(
             score *= 0.7
         if re.search(r"\b(results?|conclusions?|found|showed|demonstrated|revealed|observed)\b", body, re.I):
             score *= 1.15
+        # Scientific evidence is often stated as a finding rather than a
+        # repetition of the paper title. Rank such sentences above background
+        # when they also share at least some query concepts.
+        if score > 0 and re.search(
+            r"\b(?:(?:here\s*,?\s*)?we\s+(?:have\s+)?"
+            r"(?:show|demonstrate|find|found|report|observe|observed|reveal|"
+            r"suggest|indicate)|(?:our|these)\s+(?:results|findings|data)\s+"
+            r"(?:show|suggest|indicate|demonstrate))\b",
+            body,
+            re.I,
+        ):
+            score *= 1.55
         sentences.append(_Sentence(PreparedMemoryFragment(address, start, end, body), terms, score))
     return sentences
 
@@ -427,7 +439,11 @@ def _combine_plans(groups: Sequence[Sequence[_Plan]], max_bytes: int) -> list[Pr
                 combined_cost = cost + plan.cost + bool(fragments)
                 if combined_cost > max_bytes:
                     break
-                combined_score = score + plan.score
+                # A very long excerpt from one article should not crowd out
+                # every other plausible source. A bounded per-source bonus
+                # rewards using otherwise wasted space on a distinct citation.
+                diversity_bonus = 0.12 * min(1.0, plan.score / 0.25)
+                combined_score = score + plan.score + diversity_bonus
                 if combined_score > updated.get(combined_cost, (-1.0, ()))[0]:
                     updated[combined_cost] = (combined_score, fragments + plan.fragments)
         states = {}

@@ -1,0 +1,38 @@
+name: Competition evidence checks
+on:
+  push:
+    branches: [2026-competition]
+    paths:
+      - 'src/powercontext/builtin/runtime/prepared_evidence.py'
+      - 'src/powercontext/builtin/runtime/prepared_context.py'
+      - 'tests/test_retrieval_quality_regressions.py'
+      - 'competition/challenges/context-01-evidence-selection/**'
+      - '.github/workflows/competition-evidence-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d
+        with:
+          version: '0.10.12'
+      - name: Install frozen public test environment
+        run: make -C competition install
+      - name: Run official public challenge tests
+        run: make -C competition test-evidence
+      - name: Run evidence contract regressions
+        run: |
+          PYTHONPATH=src competition/.venv/bin/python -m pytest -q \
+            tests/test_retrieval_quality_regressions.py \
+            tests/test_competition_runtime_regressions.py

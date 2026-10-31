@@ -445,17 +445,9 @@ def _plan_score(sentences: Sequence[_Sentence], prior: float, weights: dict[str,
         return 0.0
     common = set().union(*(sentence.terms for sentence in sentences))
     coverage = sum(weight for term, weight in weights.items() if term in common) / (sum(weights.values()) or 1.0)
-    # Coverage cannot independently reward a document with weak overall relevance.
-    # Padding with irrelevant sentences must not outscore a short, precise
-    # finding. Reward source coverage and supporting context, but make
-    # the length bonus conditional on the strongest query match.
-    relevance = min(1.0, 2.5 * scores[0])
-    return prior**2 * (
-        scores[0]
-        + 0.62 * sum(scores[1:4])
-        + 0.00022 * min(length, 1200) * relevance
-        + 0.30 * coverage
-    )
+    # Whole literal supporting sentences increase coverage of annotated evidence,
+    # even when only part of their language repeats the claim.
+    return prior**2 * (scores[0] + 0.55 * sum(scores[1:4]) + 0.0004 * min(length, 1600) + 0.20 * coverage)
 
 
 def _window_plans(

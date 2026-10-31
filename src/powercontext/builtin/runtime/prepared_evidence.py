@@ -111,8 +111,6 @@ _DIRECTION_FEATURE = "relation:change"
 # Linguistic concepts are used only for ranking. Returned evidence and its
 # character offsets always remain verbatim from the source entry.
 _RELATION_GROUPS = {
-    "relation:up": "increase increased increasing elevated elevation rise raised higher upregulated enhancement enhanced more gain",
-    "relation:down": "decrease decreased decreasing reduction reduced lowered lower inhibited inhibition suppress suppressed attenuation attenuated diminished loss fewer",
     "relation:association": "associate associated association correlate correlated correlation linked related relationship",
     "relation:causal": "cause causes caused induce induced induction trigger triggered lead leads leading resulting",
     "relation:negation": "not no without lacking lack absence absent failed",
@@ -452,7 +450,7 @@ def _plan_score(sentences: Sequence[_Sentence], prior: float, weights: dict[str,
     # finding. Reward source coverage and supporting context, but make
     # the length bonus conditional on the strongest query match.
     relevance = min(1.0, 2.5 * scores[0])
-    return prior**1.7 * (
+    return prior**2 * (
         scores[0]
         + 0.62 * sum(scores[1:4])
         + 0.00022 * min(length, 1200) * relevance

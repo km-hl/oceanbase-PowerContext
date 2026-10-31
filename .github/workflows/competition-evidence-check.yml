@@ -46,7 +46,7 @@ jobs:
           data_dir=$(dirname "$data_file")
           PYTHONPATH=src competition/.venv/bin/python scripts/evaluate_evidence_quality.py \
             --native --all-candidates --data-dir "$data_dir" \
-            --max-claims 60 --output "$RUNNER_TEMP/evidence-dev.json"
+            --output "$RUNNER_TEMP/evidence-dev.json"
           PYTHONPATH=src competition/.venv/bin/python scripts/evaluate_evidence_quality.py \
             --native --all-candidates --data-dir "$data_dir" --claims claims_train.jsonl \
-            --skip-claims 150 --max-claims 60 --output "$RUNNER_TEMP/evidence-train.json"
+            --output "$RUNNER_TEMP/evidence-train.json"

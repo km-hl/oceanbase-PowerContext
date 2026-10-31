@@ -108,6 +108,19 @@ _DIRECTION_TERMS = frozenset(
 )
 _DIRECTION_FEATURE = "relation:change"
 
+# Linguistic concepts are used only for ranking. Returned evidence and its
+# character offsets always remain verbatim from the source entry.
+_RELATION_GROUPS = {
+    "relation:up": "increase increased increasing elevated elevation rise raised higher upregulated enhancement enhanced more gain",
+    "relation:down": "decrease decreased decreasing reduction reduced lowered lower inhibited inhibition suppress suppressed attenuation attenuated diminished loss fewer",
+    "relation:association": "associate associated association correlate correlated correlation linked related relationship",
+    "relation:causal": "cause causes caused induce induced induction trigger triggered lead leads leading resulting",
+    "relation:negation": "not no without lacking lack absence absent failed",
+}
+_RELATION_GROUPS = {
+    name: frozenset(english_terms(words)) for name, words in _RELATION_GROUPS.items()
+}
+
 
 def _terms(text: str) -> list[str]:
     excluded = {english_stem(word) for word in _STOP}
@@ -144,6 +157,7 @@ def _concept_terms(text: str, aliases: Sequence[tuple[str, frozenset[str]]]) -> 
     terms = set(_terms(text))
     if terms & _DIRECTION_TERMS:
         terms.add(_DIRECTION_FEATURE)
+    terms.update(name for name, members in _RELATION_GROUPS.items() if terms & members)
     while additions := {short for short, long in aliases if long <= terms} - terms:
         terms.update(additions)
     return frozenset(terms)
@@ -323,7 +337,20 @@ def _sentence_candidates(
             score *= 1.5
         elif section:
             score *= 0.8
-        if index == 0:
+        # A short nominal opening is often a paper title, but an actual
+        # leading evidence sentence should not receive the title penalty.
+        if (
+            index == 0
+            and len(spans) > 1
+            and len(body) < 110
+            and heading is None
+            and not re.search(
+                r"\b(?:is|are|was|were|we|our|show|shows|showed|found|suggest|suggests|"
+                r"demonstrate|demonstrates|observed|find|indicate|indicates)\b",
+                body,
+                re.I,
+            )
+        ):
             score *= 0.7
         if re.search(r"\b(results?|conclusions?|found|showed|demonstrated|revealed|observed)\b", body, re.I):
             score *= 1.15
@@ -421,7 +448,16 @@ def _plan_score(sentences: Sequence[_Sentence], prior: float, weights: dict[str,
     common = set().union(*(sentence.terms for sentence in sentences))
     coverage = sum(weight for term, weight in weights.items() if term in common) / (sum(weights.values()) or 1.0)
     # Coverage cannot independently reward a document with weak overall relevance.
-    return prior**2 * (scores[0] + 0.55 * sum(scores[1:4]) + 0.0004 * min(length, 1600) + 0.20 * coverage)
+    # Padding with irrelevant sentences must not outscore a short, precise
+    # finding. Reward source coverage and supporting context, but make
+    # the length bonus conditional on the strongest query match.
+    relevance = min(1.0, 2.5 * scores[0])
+    return prior**1.7 * (
+        scores[0]
+        + 0.62 * sum(scores[1:4])
+        + 0.00022 * min(length, 1200) * relevance
+        + 0.30 * coverage
+    )
 
 
 def _window_plans(
@@ -434,6 +470,9 @@ def _window_plans(
     """Let relevant oversized sentences compete with complete-sentence plans."""
     anchors = set(weights)
     anchors.update(term for short, long in aliases if short in weights for term in long)
+    for feature, members in _RELATION_GROUPS.items():
+        if feature in weights:
+            anchors.update(members)
     envelope = len(_render(()).encode("utf-8"))
     plans = []
     for sentence in sentences:

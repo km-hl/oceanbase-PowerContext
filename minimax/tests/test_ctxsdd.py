@@ -30,7 +30,7 @@ class ContextSystemTests(unittest.TestCase):
     def test_only_latest_active_revision_is_retrieved(self):
         active, inactive = core.current_specs()
         self.assertEqual([(s["id"], s["revision"]) for s in active], [("reading-list-filter", 2)])
-        self.assertEqual(inactive, [])
+        self.assertEqual(inactive, [{"id": "reading-list-filter", "revision": 1, "reason": "older_revision"}])
         self.assertTrue(all(item["kind"] in {"spec", "code", "test"} for item in core.documents()))
 
     def test_index_search_uses_persisted_rows(self):

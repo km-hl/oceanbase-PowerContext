@@ -40,7 +40,7 @@ def ask_minimax(task: str):
         raise RuntimeError("MM_MINIMAX_API_KEY is missing: no MiniMax request has been sent")
     context = plan(task, max_bytes=14000)
     model = os.getenv("MM_MINIMAX_MODEL", "MiniMax-M3.1-Flash")
-    endpoint = os.getenv("MM_MINIMAX_BASE_URL", "https://api.minimax.chat/v1/chat/completions")
+    endpoint = os.getenv("MM_MINIMAX_BASE_URL", "https://api.minimax.io/v1/chat/completions")
     if not endpoint.startswith("https://"):
         raise ValueError("MiniMax endpoint must use HTTPS")
     instruction = ("You are modifying an existing Python project. Return ONLY a unified git diff "

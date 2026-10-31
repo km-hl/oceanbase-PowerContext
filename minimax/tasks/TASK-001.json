@@ -1,0 +1,7 @@
+{
+  "id": "TASK-001",
+  "query": "为阅读清单实现 status 与 min_rating 组合筛选并确保 HTTP 与既有功能回归",
+  "specs": ["reading-list-filter"],
+  "code": ["business/reading_list/service.py", "business/reading_list/http_api.py"],
+  "tests": ["business/tests/test_feature.py", "business/tests/test_regression.py"]
+}

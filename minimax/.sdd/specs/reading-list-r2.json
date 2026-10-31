@@ -1,0 +1,11 @@
+{
+  "id": "reading-list-filter",
+  "revision": 2,
+  "status": "active",
+  "title": "阅读清单按状态和评分组合筛选",
+  "paths": ["business/reading_list/service.py", "business/reading_list/http_api.py"],
+  "tests": ["business/tests/test_feature.py", "business/tests/test_regression.py"],
+  "requirements": ["list_books 支持可选的 status 与 min_rating", "两个筛选条件以 AND 组合，保持原始插入顺序", "非法状态或非 0-5 整数评分必须拒绝", "HTTP GET /books 使用相同筛选语义"],
+  "decisions": ["status 只能是 unread、reading、finished", "min_rating 必须是 0-5 的 int，不能接受 bool", "无过滤条件时必须保留旧版结果"],
+  "supersedes": []
+}

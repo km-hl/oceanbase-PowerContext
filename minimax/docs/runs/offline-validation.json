@@ -1,0 +1,91 @@
+{
+  "record_type": "observed_offline_execution",
+  "captured_at_utc": "2026-10-31T04:55:51.953373+00:00",
+  "python": "3.13.5",
+  "backend": "sqlite-offline",
+  "minimax_api_called": false,
+  "oceanbase_seekdb_connected": false,
+  "powercontext_server_handoff_tested": false,
+  "business_source_sha256": "33ddc06b302bda92bb6dbac0d5730f3058af585ab437781275a746b438b0e683",
+  "tests": {
+    "before_feature": {
+      "command": "python -m unittest discover -s business/tests -p test_feature.py -v",
+      "exit_code": 1,
+      "tests": 6,
+      "errors": 6,
+      "result": "FAILED (errors=6)",
+      "source": "docs/snapshots/before/service.py"
+    },
+    "before_regression": {
+      "command": "python -m unittest discover -s business/tests -p test_regression.py -v",
+      "exit_code": 0,
+      "tests": 3,
+      "passed": 3,
+      "result": "OK",
+      "source": "docs/snapshots/before/service.py"
+    },
+    "after_feature": {
+      "command": "python -m unittest discover -s business/tests -p test_feature.py -v",
+      "exit_code": 0,
+      "tests": 6,
+      "passed": 6,
+      "result": "OK",
+      "source": "business/reading_list/service.py"
+    },
+    "after_regression": {
+      "command": "python -m unittest discover -s business/tests -p test_regression.py -v",
+      "exit_code": 0,
+      "tests": 3,
+      "passed": 3,
+      "result": "OK",
+      "source": "business/reading_list/service.py"
+    },
+    "context_unit_tests": {
+      "command": "python -m unittest discover -s tests -v",
+      "exit_code": 0,
+      "tests": 7,
+      "passed": 7,
+      "result": "OK"
+    }
+  },
+  "workflow": {
+    "index": {
+      "indexed_chunks": 6,
+      "backend": "sqlite-offline"
+    },
+    "plan": {
+      "schema": "minimax.sdd-context.v1",
+      "specifications": [
+        {
+          "id": "reading-list-filter",
+          "revision": 2
+        }
+      ],
+      "inactive_specs": [
+        {
+          "id": "reading-list-filter",
+          "revision": 1,
+          "reason": "older_revision"
+        }
+      ],
+      "evidence_chunks": 6
+    },
+    "verify": {
+      "passed": true,
+      "feature_exit_code": 0,
+      "regression_exit_code": 0,
+      "input_mutation": false
+    },
+    "state": {
+      "latest_verification_fresh": true,
+      "restored_in_new_process": true
+    }
+  },
+  "notes": [
+    "Observed by invoking the real Python unittest and ctxsdd commands on a temporary local checkout.",
+    "Before snapshot was copied into the actual business source then restored in a finally block.",
+    "No MiniMax token was available; model.patch and model API logs were not fabricated.",
+    "OceanBase/seekdb credentials were unavailable; backend was SQLite, not OceanBase.",
+    "This is local offline test evidence, not an official competition grade."
+  ]
+}

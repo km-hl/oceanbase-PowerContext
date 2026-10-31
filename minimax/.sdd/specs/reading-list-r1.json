@@ -1,0 +1,11 @@
+{
+  "id": "reading-list-filter",
+  "revision": 1,
+  "status": "superseded",
+  "title": "阅读清单的旧列表接口",
+  "paths": ["business/reading_list/service.py"],
+  "tests": ["business/tests/test_regression.py"],
+  "requirements": ["list_books() 返回全部条目"],
+  "decisions": ["旧接口不支持筛选"],
+  "supersedes": []
+}

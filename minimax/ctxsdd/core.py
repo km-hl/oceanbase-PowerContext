@@ -37,6 +37,7 @@ def safe(relative: str) -> Path:
 
 def current_specs() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     newest: dict[str, dict[str, Any]] = {}
+    history: list[dict[str, Any]] = []
     for path in sorted((ROOT / ".sdd/specs").glob("*.json")):
         if path.is_symlink():
             raise ValueError("symlink specification not permitted")
@@ -46,13 +47,21 @@ def current_specs() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         if raw.get("status") not in {"active", "retired", "superseded"}:
             raise ValueError("invalid specification status")
         raw = {**raw, "path": path.relative_to(ROOT).as_posix(), "sha256": digest(path.read_bytes())}
+        if raw["revision"] < 1:
+            raise ValueError("revision must be positive")
+        history.append(raw)
         previous = newest.get(raw["id"])
+        if previous is not None and raw["revision"] == previous["revision"]:
+            raise ValueError("duplicate spec version")
         if previous is None or raw["revision"] > previous["revision"]:
             newest[raw["id"]] = raw
     superseded = {id_ for spec in newest.values() if spec["status"] == "active" for id_ in spec.get("supersedes", [])}
     active, inactive = [], []
-    for spec in newest.values():
-        if spec["status"] == "active" and spec["id"] not in superseded:
+    for spec in history:
+        latest = newest[spec["id"]]
+        if spec["revision"] != latest["revision"]:
+            inactive.append({"id": spec["id"], "revision": spec["revision"], "reason": "older_revision"})
+        elif spec["status"] == "active" and spec["id"] not in superseded:
             active.append(spec)
         else:
             inactive.append({"id": spec["id"], "revision": spec["revision"], "reason":
